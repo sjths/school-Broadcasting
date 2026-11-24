@@ -906,7 +906,9 @@
       localChannel: null,
       receiverOnline: false,
       preparedSpeechCache: new Map(),
-      speechPrepareTimer: null
+      speechPrepareTimer: null,
+      isProcessingQueue: false,
+      receivedBroadcastIds: new Set()
     };
 
     function safeCreateIcons() {
@@ -1447,9 +1449,26 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
             const audio = new Audio(audioUrl);
             state.currentAudio = audio;
             let settled = false;
-            const finish = (error) => { if (settled) return; settled = true; if (state.currentAudio === audio) state.currentAudio = null; error ? reject(error) : resolve(); };
+            let watchdog = null;
+            const finish = (error) => {
+              if (settled) return;
+              settled = true;
+              if (watchdog) clearTimeout(watchdog);
+              audio.onended = audio.onerror = null;
+              if (state.currentAudio === audio) state.currentAudio = null;
+              error ? reject(error) : resolve();
+            };
             audio.onended = () => finish();
             audio.onerror = () => finish(new Error('생성된 음성 파일을 재생하지 못했습니다. 방송실 PC의 오디오 출력 장치를 확인해 주세요.'));
+            // 일부 브라우저/오디오 장치에서 ended 이벤트가 누락되는 경우를 대비한 최종 안전장치
+            const fallbackMs = Math.min(8 * 60 * 1000, Math.max(60000, text.length * 800 + 30000));
+            watchdog = setTimeout(() => finish(new Error('음성 재생 완료 신호가 오지 않아 방송을 종료했습니다. 오디오 장치를 확인해 주세요.')), fallbackMs);
+            audio.onloadedmetadata = () => {
+              if (Number.isFinite(audio.duration) && audio.duration > 0) {
+                clearTimeout(watchdog);
+                watchdog = setTimeout(() => finish(new Error('음성 재생 완료 신호가 오지 않아 방송을 종료했습니다. 오디오 장치를 확인해 주세요.')), Math.min(8 * 60 * 1000, audio.duration * 1000 + 20000));
+              }
+            };
             audio.play().catch(err => finish(new Error(`음성 재생 실패: ${err.message || err}`)));
           }),
           dispose: () => {
@@ -1500,9 +1519,22 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           utterance.rate = finalRate;
           utterance.pitch = finalPitch;
 
-          utterance.onend = () => resolve();
-          utterance.onerror = () => resolve();
-
+          let settled = false;
+          let watchdog = null;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (watchdog) clearTimeout(watchdog);
+            utterance.onend = utterance.onerror = null;
+            resolve();
+          };
+          utterance.onend = finish;
+          utterance.onerror = finish;
+          // Web Speech API의 onend 누락으로 대기열이 멈추는 현상 방지
+          watchdog = setTimeout(() => {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+            finish();
+          }, Math.min(10 * 60 * 1000, Math.max(30000, text.length * 650 + 20000)));
           window.speechSynthesis.speak(utterance);
         }),
         dispose: () => {}
@@ -1892,9 +1924,21 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
 
     function enqueueBroadcast(payload) {
       if (!payload || !payload.text) return;
+      // BroadcastChannel과 PeerJS로 같은 패킷이 동시에 도착할 수 있으므로 ID 기준 중복 차단
+      if (payload.id && state.receivedBroadcastIds.has(payload.id)) {
+        console.warn('[Broadcast] duplicate packet ignored:', payload.id);
+        return;
+      }
+      if (payload.id) {
+        state.receivedBroadcastIds.add(payload.id);
+        if (state.receivedBroadcastIds.size > 300) {
+          const oldest = state.receivedBroadcastIds.values().next().value;
+          state.receivedBroadcastIds.delete(oldest);
+        }
+      }
       state.queue.push(payload);
       renderReceiverQueue();
-      if (!state.isBroadcasting) {
+      if (!state.isProcessingQueue && !state.isBroadcasting) {
         processNextInQueue();
       } else {
         showToast(`새 방송이 대기열(${state.queue.length}번째)에 등록되었습니다.`, 'info');
@@ -1961,55 +2005,71 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     }
 
     async function processNextInQueue() {
+      // 여러 수신 경로/비동기 완료 콜백이 동시에 실행해도 큐 처리기는 하나만 유지
+      if (state.isProcessingQueue) return;
       if (state.queue.length === 0) {
         state.isBroadcasting = false;
         state.currentBroadcastId = null;
+        state.isProcessingQueue = false;
         setOnAirUI(false);
         return;
       }
 
+      state.isProcessingQueue = true;
       const current = state.queue.shift();
       renderReceiverQueue();
 
       state.isBroadcasting = true;
       state.currentBroadcastId = current.id;
       const sessionId = ++state.broadcastSessionId;
+      let completed = false;
+      let failed = false;
 
       setOnAirUI(true, current.dept, current.text);
       notifyBroadcastStateToSenders('BROADCAST_STARTED', current.id, current);
 
-      if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
-        try {
-          if (Tone.context && Tone.context.state !== 'running') {
-            await Tone.start();
-          }
-        } catch (e) {}
-      }
-
-      // 먼저 음성을 확보한 뒤 차임벨을 재생합니다. 따라서 차임벨이 끝난 직후 멘트가 이어집니다.
-      // 평소에는 입력 중 수신 PC가 미리 생성한 음성을 사용하므로 버튼을 누른 뒤의 대기 시간이 크게 줄어듭니다.
-      let speechPlayer = null;
       try {
-        speechPlayer = await getPreparedSpeechPlayer(current);
-        if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
-        await playChime(current.chime);
-        if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
-        for (let i = 0; i < (current.repeat || 1); i++) {
-          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
-          await speechPlayer.play();
-          if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) await new Promise(r => setTimeout(r, 700));
+        if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
+          try { if (Tone.context && Tone.context.state !== 'running') await Tone.start(); } catch (e) {}
+        }
+
+        // 음성 파일 확보 후 차임을 재생해 차임 종료와 멘트 시작 사이의 공백을 방지
+        const speechPlayer = await getPreparedSpeechPlayer(current);
+        try {
+          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
+          await playChime(current.chime);
+          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
+          for (let i = 0; i < (current.repeat || 1); i++) {
+            if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
+            await speechPlayer.play();
+            if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) {
+              await new Promise(r => setTimeout(r, 700));
+            }
+          }
+          completed = state.isBroadcasting && state.broadcastSessionId === sessionId;
+        } finally {
+          speechPlayer.dispose();
         }
       } catch (error) {
+        failed = true;
         console.error('[Broadcast queue]', error);
         showToast(`방송 음성 처리 실패: ${error.message || error}`, 'error');
-        notifyBroadcastStateToSenders('BROADCAST_STOPPED', current.id);
       } finally {
-        if (speechPlayer) speechPlayer.dispose();
-        if (state.broadcastSessionId === sessionId) {
+        const stillThisSession = state.broadcastSessionId === sessionId;
+        if (stillThisSession) {
+          if (completed && !failed) {
+            notifyBroadcastStateToSenders('BROADCAST_FINISHED', current.id);
+          } else if (failed) {
+            notifyBroadcastStateToSenders('BROADCAST_STOPPED', current.id);
+          }
           state.isBroadcasting = false;
           state.currentBroadcastId = null;
           setOnAirUI(false);
-          if (state.queue.length > 0) setTimeout(() => processNextInQueue(), 500);
+        }
+        state.isProcessingQueue = false;
+        renderReceiverQueue();
+        if (state.queue.length > 0 && !state.isProcessingQueue) {
+          setTimeout(() => processNextInQueue(), 150);
         }
       }
     }
