@@ -904,7 +904,9 @@
       senderPeer: null,
       senderConn: null,
       localChannel: null,
-      receiverOnline: false
+      receiverOnline: false,
+      preparedSpeechCache: new Map(),
+      speechPrepareTimer: null
     };
 
     function safeCreateIcons() {
@@ -1562,19 +1564,19 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           synth.triggerAttackRelease('E5', '8n', now + 0.24);
           synth.triggerAttackRelease('G5', '8n', now + 0.48);
           synth.triggerAttackRelease('C6', '4n', now + 0.72);
-          durationMs = 1050;
+          durationMs = 1600;
         } else if (type === 'westminster') {
           synth.triggerAttackRelease('E5', '4n', now);
           synth.triggerAttackRelease('C5', '4n', now + 0.32);
           synth.triggerAttackRelease('D5', '4n', now + 0.64);
           synth.triggerAttackRelease('G4', '4n', now + 0.96);
-          durationMs = 1320;
+          durationMs = 1850;
         } else if (type === 'alert') {
           synth.triggerAttackRelease('A5', '16n', now);
           synth.triggerAttackRelease('E5', '16n', now + 0.15);
           synth.triggerAttackRelease('A5', '16n', now + 0.30);
           synth.triggerAttackRelease('E5', '16n', now + 0.45);
-          durationMs = 680;
+          durationMs = 950;
         }
 
         await new Promise((resolve) => {
@@ -1640,6 +1642,71 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     }
 
     // ==================== 6. BROADCAST & QUEUE ====================
+    // 방송 버튼을 누르기 전에 수신 PC에서 Gemini 음성을 미리 생성해 둡니다.
+    // 음성 생성 대기와 차임벨 재생을 겹치지 않게 하여 차임벨과 멘트 사이의 긴 공백을 없앱니다.
+    function getSpeechCacheKey(payload) {
+      return [payload.text || '', payload.voiceEngine || 'ai', payload.aiVoice || 'Kore',
+        payload.aiStyle || '', payload.browserVoiceURI || '', payload.rate || 0.95,
+        payload.pitch || 1, payload.apiKey || ''].join('\u241f');
+    }
+
+    function sendPrepareSpeechPacket(payload) {
+      if (!payload || !payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
+      const packet = { type: 'PREPARE_BROADCAST', channel: state.channelCode, payload };
+      if (state.localChannel) {
+        try { state.localChannel.postMessage(packet); } catch (e) {}
+      }
+      if (state.senderConn && state.senderConn.open) {
+        try { state.senderConn.send(packet); } catch (e) {}
+      }
+    }
+
+    function scheduleSpeechPreload() {
+      if (state.mode === 'receiver') return;
+      if (state.speechPrepareTimer) clearTimeout(state.speechPrepareTimer);
+      state.speechPrepareTimer = setTimeout(() => {
+        const payload = collectComposerPayload();
+        if (!payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
+        sendPrepareSpeechPacket(payload);
+      }, 650);
+    }
+
+    function prepareSpeechOnReceiver(payload) {
+      if (!payload || !payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
+      const key = getSpeechCacheKey(payload);
+      if (state.preparedSpeechCache.has(key)) return;
+      // 오래된 준비 작업은 최대 5개까지만 유지합니다.
+      if (state.preparedSpeechCache.size >= 5) {
+        const firstKey = state.preparedSpeechCache.keys().next().value;
+        const old = state.preparedSpeechCache.get(firstKey);
+        if (old && old.player) old.player.dispose();
+        state.preparedSpeechCache.delete(firstKey);
+      }
+      const entry = { player: null, promise: null, used: false };
+      entry.promise = prepareSpeechPlayer(payload.text, payload).then(player => {
+        entry.player = player;
+        return player;
+      }).catch(error => {
+        state.preparedSpeechCache.delete(key);
+        console.warn('[TTS preload]', error);
+        throw error;
+      });
+      // 선행 준비 중 오류는 미리 잡아 두고, 실제 방송 시 다시 명확하게 표시합니다.
+      entry.promise.catch(() => {});
+      state.preparedSpeechCache.set(key, entry);
+    }
+
+    async function getPreparedSpeechPlayer(payload) {
+      const key = getSpeechCacheKey(payload);
+      const entry = state.preparedSpeechCache.get(key);
+      if (entry) {
+        const player = entry.player || await entry.promise;
+        state.preparedSpeechCache.delete(key);
+        return player;
+      }
+      return await prepareSpeechPlayer(payload.text, payload);
+    }
+
     function collectComposerPayload() {
       const text = (document.getElementById('broadcast-text')?.value || '').trim();
       const chime = document.getElementById('opt-chime')?.value || 'standard';
@@ -1678,11 +1745,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
       let speechPlayer;
       try {
-        const [, preparedPlayer] = await Promise.all([
-          playChime(payload.chime),
-          prepareSpeechPlayer(payload.text, payload)
-        ]);
-        speechPlayer = preparedPlayer;
+        speechPlayer = await prepareSpeechPlayer(payload.text, payload);
+        await playChime(payload.chime);
         await speechPlayer.play();
       } catch (error) {
         console.error('[Local preview TTS]', error);
@@ -1922,12 +1986,13 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         } catch (e) {}
       }
 
-      // Run chime immediately while preparing speech audio in parallel for zero start & transition delay
+      // 먼저 음성을 확보한 뒤 차임벨을 재생합니다. 따라서 차임벨이 끝난 직후 멘트가 이어집니다.
+      // 평소에는 입력 중 수신 PC가 미리 생성한 음성을 사용하므로 버튼을 누른 뒤의 대기 시간이 크게 줄어듭니다.
       let speechPlayer = null;
       try {
-        const chimePromise = playChime(current.chime).catch(e => console.warn('[Chime]', e));
-        speechPlayer = await prepareSpeechPlayer(current.text, current);
-        await chimePromise;
+        speechPlayer = await getPreparedSpeechPlayer(current);
+        if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
+        await playChime(current.chime);
         if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
         for (let i = 0; i < (current.repeat || 1); i++) {
           if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
@@ -2384,6 +2449,10 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         updateSenderConnectionUI(true);
       } else if (data.type === 'RECEIVER_VOICES_LIST') {
         applyRemoteReceiverVoices(data.voices);
+      } else if (data.type === 'PREPARE_BROADCAST') {
+        if (state.mode === 'receiver' || state.mode === 'split') {
+          prepareSpeechOnReceiver(data.payload);
+        }
       } else if (data.type === 'PLAY_BROADCAST') {
         if (state.mode === 'receiver' || state.mode === 'split') {
           enqueueBroadcast(data.payload);
@@ -2575,6 +2644,12 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     } else {
       initApp();
     }
+    document.addEventListener('DOMContentLoaded', () => {
+      const composer = document.getElementById('broadcast-text');
+      if (composer) composer.addEventListener('input', scheduleSpeechPreload);
+      ['opt-voice-engine','opt-ai-voice','opt-ai-style','opt-rate','opt-pitch'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', scheduleSpeechPreload); });
+    });
+
     window.addEventListener('load', initApp);
   </script>
 </body>
