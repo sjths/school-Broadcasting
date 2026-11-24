@@ -267,6 +267,12 @@
               </div>
               <span id="char-count" class="font-mono font-bold text-[#5C432E]">0자</span>
             </div>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <button type="button" id="btn-ai-polish" onclick="polishBroadcastText()" class="px-3 py-2 rounded-full text-xs font-extrabold bg-[#EAE3D5] hover:bg-[#E4DCCB] text-[#5C432E] border border-[#3A2E25]">✨ AI 방송 문장 다듬기</button>
+              <button type="button" onclick="saveCurrentAsTemplate()" class="px-3 py-2 rounded-full text-xs font-bold bg-white hover:bg-[#EFE9DD] text-[#5C432E] border border-[#3A2E25]">＋ 내 문구로 저장</button>
+              <button type="button" onclick="renderCustomTemplates()" class="px-3 py-2 rounded-full text-xs font-bold bg-white hover:bg-[#EFE9DD] text-[#5C432E] border border-[#3A2E25]">저장 문구 보기</button>
+            </div>
+            <div id="custom-template-list" class="hidden mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
           </div>
 
           <!-- Audio & TTS Options Grid -->
@@ -452,7 +458,7 @@
           </div>
 
           <p class="text-xs text-[#786F68]">
-            지정된 시각이 되면 방송실 음향 시스템으로 자동 송출됩니다. 등록된 일정은 언제든 <strong>고치기</strong> 또는 <strong>지우기</strong>가 가능합니다.
+            예약 자동 송출을 위해 교무실 송출 화면을 켜 두고 인터넷·방송실 연결을 유지해 주세요. PC 절전·브라우저 종료 중에는 실행되지 않습니다. 등록된 일정은 언제든 <strong>고치기</strong> 또는 <strong>지우기</strong>가 가능합니다.
           </p>
 
           <div id="scheduled-broadcast-list" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
@@ -809,7 +815,8 @@
       CHANNEL: 'sjths_pa_channel_code',
       API_KEY: 'sjths_pa_gemini_api_key',
       SCHEDULES: 'sjths_pa_schedules_v1',
-      HISTORY: 'sjths_pa_history_v1'
+      HISTORY: 'sjths_pa_history_v1',
+      CUSTOM_TEMPLATES: 'sjths_pa_custom_templates_v1'
     };
 
     const MALE_AI_VOICES = ['Charon', 'Orus', 'Achird', 'Iapetus', 'Fenrir', 'Puck'];
@@ -882,6 +889,9 @@
       queue: [],
       history: [],
       schedules: [],
+      customTemplates: [],
+      isRewriting: false,
+      isDispatching: false,
       editingScheduleId: null,
       pendingDeleteScheduleId: null,
       clockTimer: null,
@@ -919,6 +929,9 @@
           const parsed = JSON.parse(savedSchedules);
           if (Array.isArray(parsed)) state.schedules = parsed;
         }
+
+        const savedCustomTemplates = localStorage.getItem(STORAGE_KEYS.CUSTOM_TEMPLATES);
+        if (savedCustomTemplates) { const parsedTemplates = JSON.parse(savedCustomTemplates); if (Array.isArray(parsedTemplates)) state.customTemplates = parsedTemplates; }
 
         const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
         if (savedHistory) {
@@ -1020,28 +1033,82 @@
     function renderTemplates() {
       const container = document.getElementById('template-buttons');
       if (!container) return;
-      container.innerHTML = TEMPLATES.map((tpl, idx) => `
-        <button type="button" onclick="applyTemplate(${idx})"
-          class="dash-item text-left px-3.5 py-2.5 hover:bg-[#EFE9DD] transition group">
-          <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span>
-            <span class="text-xs font-extrabold text-[#2B2623] group-hover:text-[#7C5638] truncate">${escapeHtml(tpl.title)}</span>
-          </div>
-          <div class="text-[11px] font-medium text-[#786F68] truncate mt-0.5 pl-3.5">${escapeHtml(tpl.tag)}</div>
-        </button>
-      `).join('');
+      const all = [...TEMPLATES, ...state.customTemplates];
+      container.innerHTML = all.map((tpl, idx) => `
+        <button type="button" onclick="applyTemplate(${idx})" class="dash-item text-left px-3.5 py-2.5 hover:bg-[#EFE9DD] transition group">
+          <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span><span class="text-xs font-extrabold text-[#2B2623] group-hover:text-[#7C5638] truncate">${escapeHtml(tpl.title)}</span></div>
+          <div class="text-[11px] font-medium text-[#786F68] truncate mt-0.5 pl-3.5">${escapeHtml(tpl.tag || '내 저장 문구')}</div>
+        </button>`).join('');
     }
 
     function applyTemplate(idx) {
-      const tpl = TEMPLATES[idx];
+      const all = [...TEMPLATES, ...state.customTemplates];
+      const tpl = all[idx];
       if (!tpl) return;
       const textArea = document.getElementById('broadcast-text');
       const chimeSelect = document.getElementById('opt-chime');
-
       if (textArea) textArea.value = tpl.text;
-      if (chimeSelect) chimeSelect.value = tpl.chime;
+      if (chimeSelect && tpl.chime) chimeSelect.value = tpl.chime;
       updateCharCount();
-      showToast(`'${tpl.title}' 템플릿이 입력되었습니다.`, 'info');
+      showToast(`'${tpl.title}' 문구를 입력했습니다.`, 'info');
+    }
+
+    function saveCurrentAsTemplate() {
+      const text = document.getElementById('broadcast-text')?.value.trim() || '';
+      if (!text) return showToast('먼저 저장할 방송 문구를 입력해 주세요.', 'error');
+      const title = prompt('저장할 문구의 이름을 입력하세요.', '내 방송 문구');
+      if (!title || !title.trim()) return;
+      state.customTemplates.unshift({ title: title.trim().slice(0, 40), tag: '사용자 저장', text, chime: document.getElementById('opt-chime')?.value || 'standard' });
+      state.customTemplates = state.customTemplates.slice(0, 30);
+      try { localStorage.setItem(STORAGE_KEYS.CUSTOM_TEMPLATES, JSON.stringify(state.customTemplates)); } catch(e) { showToast('저장 공간이 부족해 문구를 저장하지 못했습니다.', 'error'); return; }
+      renderTemplates(); renderCustomTemplates();
+      showToast('내 방송 문구로 저장했습니다.', 'success');
+    }
+
+    function renderCustomTemplates() {
+      const box = document.getElementById('custom-template-list');
+      if (!box) return;
+      box.classList.toggle('hidden');
+      if (box.classList.contains('hidden')) return;
+      if (!state.customTemplates.length) { box.innerHTML = '<p class="text-xs text-[#786F68]">저장한 문구가 없습니다.</p>'; return; }
+      box.innerHTML = state.customTemplates.map((t,i) => `<div class="dash-item p-2.5 flex items-center gap-2"><button type="button" onclick="applyTemplate(${TEMPLATES.length+i})" class="min-w-0 flex-1 text-left"><strong class="block text-xs truncate">${escapeHtml(t.title)}</strong><span class="block text-[11px] text-[#786F68] truncate">${escapeHtml(t.text)}</span></button><button type="button" onclick="deleteCustomTemplate(${i})" class="text-xs font-bold text-[#B9382C] px-2">삭제</button></div>`).join('');
+    }
+
+    function deleteCustomTemplate(index) {
+      if (!confirm('이 저장 문구를 삭제할까요?')) return;
+      state.customTemplates.splice(index,1);
+      try { localStorage.setItem(STORAGE_KEYS.CUSTOM_TEMPLATES, JSON.stringify(state.customTemplates)); } catch(e) {}
+      renderTemplates(); renderCustomTemplates();
+    }
+
+    async function polishBroadcastText() {
+      const area = document.getElementById('broadcast-text');
+      const text = area?.value.trim() || '';
+      if (!text) return showToast('먼저 다듬을 방송 문장을 입력해 주세요.', 'error');
+      if (!state.customApiKey) return showToast('설정에서 Gemini API 키를 먼저 입력해 주세요.', 'error');
+      if (state.isRewriting) return;
+      state.isRewriting = true;
+      const btn = document.getElementById('btn-ai-polish');
+      if (btn) { btn.disabled = true; btn.textContent = 'AI가 문장을 다듬는 중…'; }
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(state.customApiKey.trim())}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 25000);
+        let response;
+        try { response = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal, body:JSON.stringify({ contents:[{parts:[{text:`다음 문장을 한국 고등학교 교내 방송에 적합하게 자연스럽고 정중하며 간결한 한국어 안내 멘트로 다듬어 주세요. 원문에 없는 날짜, 시간, 장소, 인명, 지시사항은 절대 추가하지 마세요. 사실과 숫자는 그대로 유지하고, 설명이나 따옴표 없이 수정된 방송 멘트만 출력하세요.
+
+원문:
+${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
+        finally { clearTimeout(timer); }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error?.message || `Gemini 요청 오류 (${response.status})`);
+        const rewritten = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+        if (!rewritten) throw new Error('AI가 수정된 문장을 반환하지 않았습니다.');
+        area.value = rewritten.replace(/^['"“”]+|['"“”]+$/g,'').trim();
+        updateCharCount();
+        showToast('방송 문장을 다듬었습니다. 내용과 숫자를 확인한 뒤 송출해 주세요.', 'success');
+      } catch (e) { showToast(e.name === 'AbortError' ? 'AI 문장 다듬기 시간이 초과되었습니다.' : (e.message || 'AI 문장 다듬기에 실패했습니다.'), 'error'); }
+      finally { state.isRewriting = false; if (btn) { btn.disabled = false; btn.textContent = '✨ AI 방송 문장 다듬기'; } }
     }
 
     function insertPhrase(phrase) {
@@ -1294,9 +1361,12 @@
       return state.voices[0] || null;
     }
 
-    function pcm16ToWavBlob(base64Pcm, sampleRate = 24000) {
+    function pcm16ToWavBlob(base64Pcm, sampleRate = 24000, channels = 1) {
       const binaryStr = atob(base64Pcm);
       const pcmLength = binaryStr.length;
+      channels = Math.max(1, Math.min(2, Number(channels) || 1));
+      const bytesPerSample = 2;
+      const blockAlign = channels * bytesPerSample;
       const wavBuffer = new ArrayBuffer(44 + pcmLength);
       const view = new DataView(wavBuffer);
 
@@ -1312,10 +1382,10 @@
       writeStr(12, 'fmt ');
       view.setUint32(16, 16, true);
       view.setUint16(20, 1, true);
-      view.setUint16(22, 1, true);
+      view.setUint16(22, channels, true);
       view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true);
-      view.setUint16(32, 2, true);
+      view.setUint32(28, sampleRate * blockAlign, true);
+      view.setUint16(32, blockAlign, true);
       view.setUint16(34, 16, true);
       writeStr(36, 'data');
       view.setUint32(40, pcmLength, true);
@@ -1329,49 +1399,33 @@
 
     async function fetchGeminiTtsAudioUrl(text, voiceName = 'Kore', stylePrompt = '', overrideApiKey = '') {
       const apiKey = (overrideApiKey || state.customApiKey || '').trim();
-      if (!apiKey) return null;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
-
-      try {
-        const promptText = stylePrompt ? `${stylePrompt}: "${text}"` : text;
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
-                }
-              }
-            }
-          })
-        });
-
-        if (!response.ok) return null;
-        const data = await response.json();
-        const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-        if (!inlineData || !inlineData.data) return null;
-
-        const mime = inlineData.mimeType || '';
-        if (mime.includes('wav') || mime.includes('mp3') || mime.includes('ogg')) {
-          return `data:${mime};base64,${inlineData.data}`;
-        }
-        const rateMatch = mime.match(/rate=(\d+)/);
-        const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
-        const wavBlob = pcm16ToWavBlob(inlineData.data, sampleRate);
-        return URL.createObjectURL(wavBlob);
-      } catch (e) {
-        return null;
-      } finally {
-        clearTimeout(timeoutId);
+      if (!apiKey) throw new Error('Gemini API 키가 없습니다. 설정에서 API 키를 입력해 주세요.');
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        try {
+          const promptText = stylePrompt ? `Style instructions: ${stylePrompt}. Read the following Korean school announcement exactly as written. Do not add or omit information. Text: ${text}` : `Read the following Korean school announcement exactly as written. Do not add or omit information. Text: ${text}`;
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const response = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal, body:JSON.stringify({ contents:[{parts:[{text:promptText}]}], generationConfig:{responseModalities:['AUDIO'], speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voiceName || 'Kore'}}} } }) });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data?.error?.message || `Gemini 음성 생성 오류 (${response.status})`);
+          const parts = data?.candidates?.[0]?.content?.parts || [];
+          const inlineData = parts.map(p => p.inlineData || p.inline_data).find(d => d?.data);
+          if (!inlineData) throw new Error('Gemini 응답에 음성 데이터가 없습니다. 모델 또는 API 키 권한을 확인해 주세요.');
+          const mime = inlineData.mimeType || inlineData.mime_type || '';
+          if (/audio\/(wav|mpeg|mp3|ogg|aac|mp4)/i.test(mime)) return `data:${mime};base64,${inlineData.data}`;
+          const rateMatch = mime.match(/rate=(\d+)/i);
+          const channelMatch = mime.match(/channels=(\d+)/i);
+          const sampleRate = rateMatch ? parseInt(rateMatch[1],10) : 24000;
+          const channels = channelMatch ? parseInt(channelMatch[1],10) : 1;
+          return URL.createObjectURL(pcm16ToWavBlob(inlineData.data, sampleRate, channels));
+        } catch (e) {
+          lastError = e.name === 'AbortError' ? new Error('Gemini 음성 생성 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요.') : e;
+          if (attempt === 0) await new Promise(r => setTimeout(r, 800));
+        } finally { clearTimeout(timeoutId); }
       }
+      throw lastError || new Error('Gemini 음성을 생성하지 못했습니다.');
     }
 
     async function prepareSpeechPlayer(text, options = {}) {
@@ -1387,16 +1441,14 @@
 
       if (audioUrl) {
         return {
-          play: () => new Promise((resolve) => {
+          play: () => new Promise((resolve, reject) => {
             const audio = new Audio(audioUrl);
             state.currentAudio = audio;
-            const finish = () => {
-              if (state.currentAudio === audio) state.currentAudio = null;
-              resolve();
-            };
-            audio.onended = finish;
-            audio.onerror = finish;
-            audio.play().catch(finish);
+            let settled = false;
+            const finish = (error) => { if (settled) return; settled = true; if (state.currentAudio === audio) state.currentAudio = null; error ? reject(error) : resolve(); };
+            audio.onended = () => finish();
+            audio.onerror = () => finish(new Error('생성된 음성 파일을 재생하지 못했습니다. 방송실 PC의 오디오 출력 장치를 확인해 주세요.'));
+            audio.play().catch(err => finish(new Error(`음성 재생 실패: ${err.message || err}`)));
           }),
           dispose: () => {
             if (audioUrl && audioUrl.startsWith('blob:')) {
@@ -1469,20 +1521,10 @@
 
       try {
         const sampleText = '아, 아, 안내 말씀 드립니다. 상주공업고등학교 스마트 교내 방송 음성 테스트입니다.';
-        const player = await prepareSpeechPlayer(sampleText, {
-          voiceEngine: engine,
-          aiVoice,
-          aiStyle,
-          browserVoiceURI,
-          rate,
-          pitch,
-          apiKey: state.customApiKey
-        });
-        await player.play();
-        player.dispose();
-      } finally {
-        if (btn) btn.disabled = false;
-      }
+        const player = await prepareSpeechPlayer(sampleText, { voiceEngine: engine, aiVoice, aiStyle, browserVoiceURI, rate, pitch, apiKey: state.customApiKey });
+        try { await player.play(); } finally { player.dispose(); }
+      } catch (e) { showToast(e.message || '목소리 샘플 재생에 실패했습니다.', 'error'); }
+      finally { if (btn) btn.disabled = false; }
     }
 
     // ==================== 5. CHIME SYNTHESIZER ====================
@@ -1634,22 +1676,33 @@
       }
 
       showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
-      const [, speechPlayer] = await Promise.all([
-        playChime(payload.chime),
-        prepareSpeechPlayer(payload.text, payload)
-      ]);
-      await speechPlayer.play();
-      speechPlayer.dispose();
+      let speechPlayer;
+      try {
+        const [, preparedPlayer] = await Promise.all([
+          playChime(payload.chime),
+          prepareSpeechPlayer(payload.text, payload)
+        ]);
+        speechPlayer = preparedPlayer;
+        await speechPlayer.play();
+      } catch (error) {
+        console.error('[Local preview TTS]', error);
+        stopActiveChime();
+        showToast(error.message || '음성 미리듣기에 실패했습니다.', 'error');
+      } finally {
+        if (speechPlayer) speechPlayer.dispose();
+      }
     }
 
     function sendBroadcast() {
+      if (state.isDispatching) return showToast('방송 전송을 처리 중입니다. 잠시 기다려 주세요.', 'info');
       const payload = collectComposerPayload();
       if (!payload.text) {
         showToast('방송할 멘트를 입력해 주세요.', 'error');
         document.getElementById('broadcast-text')?.focus();
         return;
       }
-      dispatchBroadcastPayload(payload, false);
+      state.isDispatching = true;
+      try { dispatchBroadcastPayload(payload, false); } finally { setTimeout(() => { state.isDispatching = false; }, 700); }
     }
 
     function dispatchBroadcastPayload(payload, isScheduled = false) {
@@ -1870,36 +1923,28 @@
       }
 
       // Run chime immediately while preparing speech audio in parallel for zero start & transition delay
-      const [, speechPlayer] = await Promise.all([
-        playChime(current.chime),
-        prepareSpeechPlayer(current.text, current)
-      ]);
-
-      if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
-        speechPlayer.dispose();
-        return;
-      }
-
+      let speechPlayer = null;
       try {
+        const chimePromise = playChime(current.chime).catch(e => console.warn('[Chime]', e));
+        speechPlayer = await prepareSpeechPlayer(current.text, current);
+        await chimePromise;
+        if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
         for (let i = 0; i < (current.repeat || 1); i++) {
           if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
           await speechPlayer.play();
-          if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) {
-            await new Promise(r => setTimeout(r, 700));
-          }
+          if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) await new Promise(r => setTimeout(r, 700));
         }
+      } catch (error) {
+        console.error('[Broadcast queue]', error);
+        showToast(`방송 음성 처리 실패: ${error.message || error}`, 'error');
+        notifyBroadcastStateToSenders('BROADCAST_STOPPED', current.id);
       } finally {
-        speechPlayer.dispose();
-      }
-
-      if (state.isBroadcasting && state.broadcastSessionId === sessionId) {
-        notifyBroadcastStateToSenders('BROADCAST_FINISHED', current.id);
-        state.isBroadcasting = false;
-        state.currentBroadcastId = null;
-        setOnAirUI(false);
-
-        if (state.queue.length > 0) {
-          setTimeout(() => processNextInQueue(), 400);
+        if (speechPlayer) speechPlayer.dispose();
+        if (state.broadcastSessionId === sessionId) {
+          state.isBroadcasting = false;
+          state.currentBroadcastId = null;
+          setOnAirUI(false);
+          if (state.queue.length > 0) setTimeout(() => processNextInQueue(), 500);
         }
       }
     }
@@ -2175,6 +2220,8 @@
       }).join('');
     }
 
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && state.mode !== 'receiver') checkScheduledBroadcasts(new Date()); });
+
     function startSystemClock() {
       if (state.clockTimer) clearInterval(state.clockTimer);
       const tick = () => {
@@ -2202,6 +2249,7 @@
       state.schedules.forEach((sched) => {
         if (!sched.enabled || sched.time !== timeStr) return;
         if (sched.lastTriggeredKey === triggerKey) return;
+        try { if (localStorage.getItem(`sjths_pa_schedule_lock_${sched.id}`) === triggerKey) { sched.lastTriggeredKey = triggerKey; return; } } catch(e) {}
 
         let shouldRun = false;
         if (sched.recurrence === 'once' && sched.date === dateStr) {
@@ -2214,6 +2262,7 @@
 
         if (shouldRun) {
           sched.lastTriggeredKey = triggerKey;
+          try { localStorage.setItem(`sjths_pa_schedule_lock_${sched.id}`, triggerKey); } catch(e) {}
           if (sched.recurrence === 'once') {
             sched.enabled = false;
           }
@@ -2503,6 +2552,8 @@
       registerDynamicManifest();
       syncChannelDisplays();
       renderTemplates();
+      renderCustomTemplates();
+      document.getElementById('custom-template-list')?.classList.add('hidden');
       switchMode(state.mode);
       toggleVoiceEngineUI();
       updateCharCount();
