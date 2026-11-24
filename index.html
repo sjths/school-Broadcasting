@@ -1349,12 +1349,16 @@
       const apiKey = (overrideApiKey || state.customApiKey || '').trim();
       if (!apiKey) return null;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
+
       try {
         const promptText = stylePrompt ? `${stylePrompt}: "${text}"` : text;
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`;
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: {
@@ -1383,6 +1387,8 @@
         return URL.createObjectURL(wavBlob);
       } catch (e) {
         return null;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
@@ -1516,7 +1522,9 @@
       if (type === 'none' || typeof Tone === 'undefined') return;
       stopActiveChime();
       try {
-        await Tone.start();
+        if (Tone.context && Tone.context.state !== 'running') {
+          await Tone.start();
+        }
         const synth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'sine' },
           envelope: { attack: 0.02, decay: 0.28, sustain: 0.12, release: 0.35 }
@@ -1645,8 +1653,10 @@
       }
 
       showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
-      const speechPlayer = await prepareSpeechPlayer(payload.text, payload);
-      await playChime(payload.chime);
+      const [, speechPlayer] = await Promise.all([
+        playChime(payload.chime),
+        prepareSpeechPlayer(payload.text, payload)
+      ]);
       await speechPlayer.play();
       speechPlayer.dispose();
     }
@@ -1871,18 +1881,18 @@
       notifyBroadcastStateToSenders('BROADCAST_STARTED', current.id, current);
 
       if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
-        try { await Tone.start(); } catch (e) {}
+        try {
+          if (Tone.context && Tone.context.state !== 'running') {
+            await Tone.start();
+          }
+        } catch (e) {}
       }
 
-      // Prepare speech player first so AI audio download never causes dead air after the chime
-      const speechPlayer = await prepareSpeechPlayer(current.text, current);
-
-      if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
-        speechPlayer.dispose();
-        return;
-      }
-
-      await playChime(current.chime);
+      // Run chime immediately while preparing speech audio in parallel for zero start & transition delay
+      const [, speechPlayer] = await Promise.all([
+        playChime(current.chime),
+        prepareSpeechPlayer(current.text, current)
+      ]);
 
       if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
         speechPlayer.dispose();
