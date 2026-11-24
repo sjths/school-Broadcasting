@@ -249,12 +249,7 @@
               <i data-lucide="mic" class="w-5 h-5 text-[#7C5638]"></i>
               <span>방송 멘트 작성</span>
             </h3>
-            <!-- Department / Sender Name -->
-            <div class="flex items-center gap-2">
-              <label for="sender-dept" class="text-xs font-bold text-[#786F68]">송출 부서:</label>
-              <input id="sender-dept" type="text" value="교무기획부" placeholder="예: 교무실, 스마트토목교육부"
-                class="text-xs font-bold bg-white border border-[#3A2E25] rounded-full px-3.5 py-1.5 w-36 text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
-            </div>
+            <span class="text-xs font-medium text-[#786F68]">상주공업고등학교 교내 방송</span>
           </div>
 
           <!-- Textarea -->
@@ -351,6 +346,9 @@
                   </select>
                 </div>
               </div>
+              <p class="text-[11px] text-[#5C432E] leading-relaxed">
+                💡 방송실 PC에서 <strong>Microsoft Edge(엣지)</strong> 브라우저로 접속하시면 Windows 기본 남성·여성 성우(InJoon, Hyunsu, SunHi, JiMin 등)가 자동 연동되어 성우 선택이 더욱 뚜렷하게 구분됩니다.
+              </p>
             </div>
 
             <!-- Chime, Repeat, Rate, Pitch -->
@@ -721,13 +719,8 @@
           </div>
         </div>
 
-        <!-- Department & Chime & Repeat -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-[#2B2623] mb-1">송출 부서</label>
-            <input id="sched-dept" type="text" placeholder="예: 교무기획부"
-              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
-          </div>
+        <!-- Chime & Repeat -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-[#2B2623] mb-1">차임벨</label>
             <select id="sched-chime"
@@ -751,26 +744,24 @@
         <!-- Voice Selection inside Modal -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-[#2B2623] mb-1">방송 목소리 (성우)</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">방송 성우</label>
             <select id="sched-voice"
-              class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
-              <optgroup label="👨 남성 성우 (Male)">
-                <option value="ai:Charon">👨 [남성] Charon — 차분한 중저음 아나운서</option>
-                <option value="ai:Orus">👨 [남성] Orus — 단정한 표준 교내 방송</option>
-                <option value="ai:Achird">👨 [남성] Achird — 친근한 선생님 목소리</option>
-                <option value="ai:Iapetus">👨 [남성] Iapetus — 깔끔한 안내 목소리</option>
-                <option value="ai:Fenrir">👨 [남성] Fenrir — 힘찬 체육/행사 톤</option>
-                <option value="ai:Puck">👨 [남성] Puck — 밝고 경쾌한 안내</option>
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
+              <optgroup label="✨ AI 아나운서 성우">
+                <option value="ai:Kore">👩 [여성] Kore (표준 아나운서)</option>
+                <option value="ai:Aoede">👩 [여성] Aoede (밝은 안내)</option>
+                <option value="ai:Sulafat">👩 [여성] Sulafat (다정한 톤)</option>
+                <option value="ai:Gacrux">👩 [여성] Gacrux (차분한 톤)</option>
+                <option value="ai:Leda">👩 [여성] Leda (학생회 톤)</option>
+                <option value="ai:Charon">👨 [남성] Charon (중저음 아나운서)</option>
+                <option value="ai:Orus">👨 [남성] Orus (표준 남성)</option>
+                <option value="ai:Achird">👨 [남성] Achird (따뜻한 선생님)</option>
+                <option value="ai:Iapetus">👨 [남성] Iapetus (명료한 안내)</option>
+                <option value="ai:Fenrir">👨 [남성] Fenrir (활기찬 행사)</option>
+                <option value="ai:Puck">👨 [남성] Puck (경쾌한 안내)</option>
               </optgroup>
-              <optgroup label="👩 여성 성우 (Female)">
-                <option value="ai:Kore">👩 [여성] Kore — 단정한 표준 아나운서</option>
-                <option value="ai:Aoede">👩 [여성] Aoede — 밝고 경쾌한 안내</option>
-                <option value="ai:Sulafat">👩 [여성] Sulafat — 다정한 선생님 목소리</option>
-                <option value="ai:Gacrux">👩 [여성] Gacrux — 차분한 교직원 안내</option>
-                <option value="ai:Leda">👩 [여성] Leda — 맑은 학생회 방송</option>
-              </optgroup>
-              <optgroup label="💻 PC 내장 기본 음성">
-                <option value="browser:">💻 PC 기본 음성 (자동 선택)</option>
+              <optgroup label="💻 PC 내장 음성">
+                <option value="browser:">한국어 기본 음성 (자동)</option>
                 <option value="browser:__virtual_male__">👨 [남성 톤 변환] PC 기본 음성</option>
               </optgroup>
             </select>
@@ -778,7 +769,7 @@
           <div>
             <label class="block text-xs font-bold text-[#2B2623] mb-1">낭독 분위기</label>
             <select id="sched-style"
-              class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <option value="정중하고 또렷한 학교 아나운서 톤으로 읽어주세요">표준 아나운서 톤</option>
               <option value="밝고 친절하며 따뜻한 목소리로 읽어주세요">밝고 친절한 안내</option>
               <option value="차분하고 신뢰감 있는 목소리로 읽어주세요">차분하고 진중한 안내</option>
@@ -787,25 +778,16 @@
           </div>
         </div>
 
-        <!-- Scheduled Broadcast Text -->
         <div>
           <label class="block text-xs font-bold text-[#2B2623] mb-1">예약 방송 멘트</label>
-          <textarea id="sched-text" rows="4"
-            placeholder="예약된 시각에 송출될 방송 멘트를 입력하세요."
-            class="w-full rounded-2xl border border-[#3A2E25] bg-white p-3 text-sm text-[#2B2623] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#7C5638] resize-none"></textarea>
+          <textarea id="sched-text" rows="4" placeholder="예약된 시각에 자동으로 송출될 방송 내용을 입력하세요."
+            class="w-full rounded-2xl border border-[#3A2E25] bg-white p-3 text-xs sm:text-sm text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638] resize-none"></textarea>
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 pt-3 border-t border-[#3A2E25]/20">
-        <button type="button" onclick="closeScheduleModal()"
-          class="px-4 py-2 rounded-full text-xs sm:text-sm font-bold text-[#5C432E] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25] transition">
-          취소
-        </button>
-        <button type="button" onclick="saveScheduleModal()" id="btn-save-schedule"
-          class="btn-chestnut px-5 py-2 rounded-full text-xs sm:text-sm font-extrabold transition flex items-center gap-1.5">
-          <i data-lucide="check" class="w-4 h-4"></i>
-          <span>예약 저장하기</span>
-        </button>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button type="button" onclick="closeScheduleModal()" class="px-4 py-2 rounded-full text-xs font-bold text-[#5C432E] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25]">취소</button>
+        <button type="button" onclick="saveScheduleModal()" class="btn-chestnut px-5 py-2 rounded-full text-xs font-extrabold">예약 저장</button>
       </div>
     </div>
   </div>
@@ -816,83 +798,73 @@
   <script>
     /**
      * ============================================================================
-     * SMART SCHOOL PA SYSTEM (스마트 교내 방송 시스템) - Full Production Build
-     * ----------------------------------------------------------------------------
-     * Module Structure:
-     *  1. CONFIG & STATE          : Central application state & preset templates
-     *  2. STORAGE & PWA           : Safe localStorage persistence, URL params, Manifest
-     *  3. UI & NAVIGATION         : View modes, templates, settings modal
-     *  4. VOICE & TTS ENGINE      : Gemini AI TTS + Web Speech API dual engine
-     *  5. CHIME SYNTHESIZER       : Tone.js bell synthesis & audio unlock
-     *  6. BROADCAST & QUEUE       : Message dispatch, acknowledgment, sequential queue
-     *  7. SCHEDULER               : Scheduled broadcast CRUD & real-time clock trigger
-     *  8. NETWORKING              : WebRTC (PeerJS) + BroadcastChannel dual transport
-     *  9. UTILITIES & BOOTSTRAP   : Clipboard, HTML escaping, toast, initialization
+     * 상주공업고등학교 스마트 교내 방송 시스템 (Smart School PA System)
+     * - 교무실 PC(송출) <-> 방송실 PC(수신/앰프) 실시간 WebRTC + BroadcastChannel 연동
+     * - Gemini 2.5 TTS AI 성우 11종 + Windows/Edge 다중 성우 및 음향 프로필 매칭
+     * - Tone.js 합성 차임벨 + 예약 방송 스케줄러 + 긴급 원격 중단
      * ============================================================================
      */
 
-    // ==================== 1. CONFIG & STATE ====================
     const STORAGE_KEYS = {
-      CHANNEL: 'pa_channel_code',
-      API_KEY: 'pa_gemini_api_key',
-      SCHEDULES: 'pa_schedules_v1',
-      HISTORY: 'pa_history_v1',
-      VOICE_URI: 'pa_voice_uri_v1'
+      CHANNEL: 'sjths_pa_channel_code',
+      API_KEY: 'sjths_pa_gemini_api_key',
+      SCHEDULES: 'sjths_pa_schedules_v1',
+      HISTORY: 'sjths_pa_history_v1'
     };
 
     const MALE_AI_VOICES = ['Charon', 'Orus', 'Achird', 'Iapetus', 'Fenrir', 'Puck'];
 
     // Distinct acoustic & Korean voice matching profiles when running on PC built-in TTS
     const VOICE_PROFILES = {
-      Charon:  { gender: 'male',   pitch: 0.62, rate: 0.90, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
-      Orus:    { gender: 'male',   pitch: 0.74, rate: 0.96, keywords: ['injoon', 'hyunsu', 'bongjin', 'male', '남성'] },
-      Achird:  { gender: 'male',   pitch: 0.80, rate: 0.91, keywords: ['hyunsu', 'injoon', 'bongjin', 'male', '남성'] },
-      Iapetus: { gender: 'male',   pitch: 0.76, rate: 1.02, keywords: ['injoon', 'bongjin', 'hyunsu', 'male', '남성'] },
-      Fenrir:  { gender: 'male',   pitch: 0.67, rate: 1.06, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
-      Puck:    { gender: 'male',   pitch: 0.87, rate: 1.08, keywords: ['hyunsu', 'injoon', 'male', '남성'] },
-      Kore:    { gender: 'female', pitch: 1.00, rate: 0.96, keywords: ['sunhi', 'heami', 'google', 'female', '여성'] },
-      Aoede:   { gender: 'female', pitch: 1.15, rate: 1.04, keywords: ['jimin', 'seohyeon', 'google', 'sunhi'] },
-      Sulafat: { gender: 'female', pitch: 0.93, rate: 0.90, keywords: ['yujin', 'soonbok', 'heami', 'sunhi'] },
-      Gacrux:  { gender: 'female', pitch: 0.86, rate: 0.92, keywords: ['soonbok', 'yujin', 'heami', 'sunhi'] },
-      Leda:    { gender: 'female', pitch: 1.24, rate: 1.03, keywords: ['seohyeon', 'jimin', 'google', 'sunhi'] }
+      Charon:  { gender: 'male',   pitch: 0.56, rate: 0.88, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
+      Orus:    { gender: 'male',   pitch: 0.68, rate: 0.95, keywords: ['injoon', 'hyunsu', 'bongjin', 'male', '남성'] },
+      Achird:  { gender: 'male',   pitch: 0.76, rate: 0.90, keywords: ['hyunsu', 'injoon', 'bongjin', 'male', '남성'] },
+      Iapetus: { gender: 'male',   pitch: 0.72, rate: 1.02, keywords: ['injoon', 'bongjin', 'hyunsu', 'male', '남성'] },
+      Fenrir:  { gender: 'male',   pitch: 0.62, rate: 1.07, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
+      Puck:    { gender: 'male',   pitch: 0.84, rate: 1.09, keywords: ['hyunsu', 'injoon', 'male', '남성'] },
+      Kore:    { gender: 'female', pitch: 1.00, rate: 0.96, keywords: ['sunhi', 'heami', 'female', '여성'] },
+      Aoede:   { gender: 'female', pitch: 1.18, rate: 1.05, keywords: ['jimin', 'seohyeon', 'sunhi'] },
+      Sulafat: { gender: 'female', pitch: 0.91, rate: 0.89, keywords: ['yujin', 'soonbok', 'heami', 'sunhi'] },
+      Gacrux:  { gender: 'female', pitch: 0.83, rate: 0.91, keywords: ['soonbok', 'yujin', 'heami', 'sunhi'] },
+      Leda:    { gender: 'female', pitch: 1.28, rate: 1.04, keywords: ['seohyeon', 'jimin', 'sunhi'] }
     };
 
     const TEMPLATES = [
       {
-        title: '🌅 아침 조회 안내',
-        dept: '교무기획부',
+        title: '📢 학생 호출 안내',
+        tag: '학생 호출',
         chime: 'standard',
-        text: '아, 아, 안내 말씀 드립니다. 곧 아침 조회가 시작됩니다. 각 학급 학생들은 자리에 바르게 앉아 조회 준비를 해주시기 바랍니다.'
+        text: '학생 호출 안내 말씀 드립니다. O학년 O반 OOO 학생은 지금 즉시 본관 1층 교무실로 와주시기 바랍니다. 다시 한번 안내 말씀 드립니다. O학년 O반 OOO 학생은 지금 바로 교무실로 오시기 바랍니다.'
       },
       {
-        title: '🍱 점심시간 질서 안내',
-        dept: '학생생활안전부',
+        title: '🏫 학급·장소 이동 안내',
+        tag: '장소 이동',
         chime: 'westminster',
-        text: '안내 말씀 드립니다. 즐거운 점심시간입니다. 급식실 이동 시 복도에서 뛰지 말고 질서를 지켜 이동해 주시기 바라며, 식사 전 반드시 손을 깨끗이 씻어 주시기 바랍니다.'
+        text: '안내 말씀 드립니다. 잠시 후 O시 OO분부터 본교 강당에서 전체 행사가 진행될 예정입니다. 각 학급 학생들은 담임 선생님의 인솔하에 질서를 지켜 지정된 장소로 이동해 주시기 바랍니다.'
       },
       {
-        title: '🏠 정규 수업 종료 및 하교',
-        dept: '교무기획부',
+        title: '🔒 종례 후 문단속·냉난방기 소등',
+        tag: '문단속·소등',
         chime: 'standard',
-        text: '안내 말씀 드립니다. 오늘 일과가 모두 끝났습니다. 교실 정리정돈과 창문 단속을 철저히 한 후 안전하게 하교하시기 바랍니다. 이상으로 안내 말씀을 마치겠습니다.'
+        text: '안내 말씀 드립니다. 오늘 일과가 모두 종료되었습니다. 각 학급에서는 창문과 출입문 문단속을 철저히 하고, 교실 내 에어컨과 난방기, 전등 전원을 반드시 꺼주시기 바랍니다. 이상으로 안내 말씀을 마치겠습니다.'
       },
       {
-        title: '☔ 우천 시 안전 하교',
-        dept: '학생생활안전부',
+        title: '🚫 교무실 출입 제한 공지',
+        tag: '출입 금지',
         chime: 'westminster',
-        text: '학생 여러분께 안내 말씀 드립니다. 현재 비가 내리고 있습니다. 하교 시 빗길 미끄럼 사고와 차량 통행에 각별히 주의하시고, 우산을 쓰지 않은 학생은 행정실 및 교무실에서 양심 우산을 대여해 가시기 바랍니다.'
+        text: '학생 여러분께 안내 말씀 드립니다. 시험 및 성적 처리 기간으로 인해 오늘부터 교무실 출입이 제한됩니다. 용무가 있는 학생은 교무실 입구에서 담당 선생님을 호출해 주시기 바라며, 학생들의 적극적인 협조를 바랍니다.'
       },
       {
-        title: '👩‍🏫 교직원 회의 안내',
-        dept: '교무기획부',
+        title: '👔 지각·복장 및 생활지도 주의',
+        tag: '생활지도 주의',
         chime: 'standard',
-        text: '선생님들께 안내 말씀 드립니다. 잠시 후 오후 4시 10분부터 본관 2층 교무회의실에서 전체 교직원 회의가 진행될 예정입니다. 선생님들께서는 회의실로 참석해 주시기 바랍니다.'
+        text: '학생 생활 안내 말씀 드립니다. 아침 등교 시간을 엄수해 주시고, 교내에서는 단정한 교복과 지정된 복장을 착용해 주시기 바랍니다. 또한 실내화 착용과 복도 정숙 등 기본 생활 수칙을 잘 지켜주시기 바랍니다.'
       },
       {
-        title: '🚨 긴급 대피 훈련',
-        dept: '안전총괄부',
+        title: '🚨 안전·긴급 주의 안내',
+        tag: '안전·긴급',
         chime: 'alert',
-        text: '긴급 안내 말씀 드립니다. 현재 지진 및 화재 대피 훈련이 발령되었습니다. 학생과 교직원 여러분께서는 안내에 따라 책상 아래로 몸을 보호한 후, 유도 요원의 지시에 따라 운동장으로 신속히 대피해 주시기 바랍니다.'
+        text: '긴급 안내 말씀 드립니다. 현재 교내 안전 점검 및 주의 사항을 전달합니다. 학생 여러분께서는 안전사고가 발생하지 않도록 위험 구역 접근을 삼가고 선생님의 안내에 따라 질서 있게 행동해 주시기 바랍니다.'
       }
     ];
 
@@ -1055,7 +1027,7 @@
             <span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span>
             <span class="text-xs font-extrabold text-[#2B2623] group-hover:text-[#7C5638] truncate">${escapeHtml(tpl.title)}</span>
           </div>
-          <div class="text-[11px] font-medium text-[#786F68] truncate mt-0.5 pl-3.5">${escapeHtml(tpl.dept)}</div>
+          <div class="text-[11px] font-medium text-[#786F68] truncate mt-0.5 pl-3.5">${escapeHtml(tpl.tag)}</div>
         </button>
       `).join('');
     }
@@ -1064,11 +1036,9 @@
       const tpl = TEMPLATES[idx];
       if (!tpl) return;
       const textArea = document.getElementById('broadcast-text');
-      const deptInput = document.getElementById('sender-dept');
       const chimeSelect = document.getElementById('opt-chime');
 
       if (textArea) textArea.value = tpl.text;
-      if (deptInput) deptInput.value = tpl.dept;
       if (chimeSelect) chimeSelect.value = tpl.chime;
       updateCharCount();
       showToast(`'${tpl.title}' 템플릿이 입력되었습니다.`, 'info');
@@ -1131,15 +1101,22 @@
       if (!pill || !engineEl) return;
 
       const hasKey = Boolean(state.customApiKey && state.customApiKey.trim());
+      const hasNeuralBrowser = (state.voices || []).some(v =>
+        v.lang && v.lang.toLowerCase().includes('ko') && /natural|online|injoon|hyunsu|bongjin|sunhi/i.test(v.name)
+      );
+
       if (engineEl.value === 'browser') {
         pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white text-[#5C432E] border border-[#3A2E25]/40 hover:bg-[#FAF8F3] transition';
         pill.textContent = '💻 PC 내장 음성 직접 선택 모드';
       } else if (hasKey) {
         pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#E6F2EC] text-[#3B7A57] border border-[#3A2E25]/40 hover:opacity-90 transition';
         pill.textContent = '✨ AI 성우 엔진 활성 (11종 고유 성우)';
+      } else if (hasNeuralBrowser) {
+        pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#E6F2EC] text-[#3B7A57] border border-[#3A2E25]/40 hover:opacity-90 transition';
+        pill.textContent = '🎙️ Windows 다중 성우 자동 매칭 활성';
       } else {
         pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]/40 hover:bg-amber-200 transition';
-        pill.textContent = '🔊 표준 음향 변환 모드 (AI 성우 키 설정 시 원본 음성)';
+        pill.textContent = '🔊 음높이·속도 변환 모드 (Edge 접속 시 다중 성우 지원)';
       }
     }
 
@@ -1244,6 +1221,7 @@
         if (state.mode === 'receiver' || state.mode === 'split') {
           broadcastReceiverVoicesList();
         }
+        updateVoiceEngineStatusBadge();
       };
 
       populate();
@@ -1307,7 +1285,11 @@
             if (matched) return matched;
           }
         }
-        return koVoices.find(v => /google|natural|online|heami|sunhi|injoon/i.test(v.name)) || koVoices[0];
+        // Prefer localService voices (e.g., Microsoft Heami) over cloud 'Google 한국의' because Google TTS ignores pitch changes
+        const localVoice = koVoices.find(v => v.localService);
+        if (localVoice) return localVoice;
+
+        return koVoices.find(v => /natural|online|heami|sunhi|injoon|google/i.test(v.name)) || koVoices[0];
       }
       return state.voices[0] || null;
     }
@@ -1618,7 +1600,6 @@
     // ==================== 6. BROADCAST & QUEUE ====================
     function collectComposerPayload() {
       const text = (document.getElementById('broadcast-text')?.value || '').trim();
-      const dept = (document.getElementById('sender-dept')?.value || '').trim() || '교무실';
       const chime = document.getElementById('opt-chime')?.value || 'standard';
       const repeat = parseInt(document.getElementById('opt-repeat')?.value || '1', 10) || 1;
       const voiceEngine = document.getElementById('opt-voice-engine')?.value || 'ai';
@@ -1630,7 +1611,7 @@
 
       return {
         id: 'BC-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
-        dept,
+        dept: '교내 방송',
         text,
         chime,
         repeat,
@@ -1720,7 +1701,7 @@
       if (isActive && payload) {
         const deptEl = document.getElementById('sender-live-dept');
         const textEl = document.getElementById('sender-live-text');
-        if (deptEl) deptEl.textContent = `[${payload.dept || '교무실'}]`;
+        if (deptEl) deptEl.textContent = '';
         if (textEl) textEl.textContent = payload.text || '';
         banner.classList.remove('hidden');
       } else {
@@ -1799,7 +1780,7 @@
       if (!state.isBroadcasting) {
         processNextInQueue();
       } else {
-        showToast(`[${payload.dept}] 방송이 대기열(${state.queue.length}번째)에 등록되었습니다.`, 'info');
+        showToast(`새 방송이 대기열(${state.queue.length}번째)에 등록되었습니다.`, 'info');
       }
     }
 
@@ -1821,7 +1802,7 @@
       list.innerHTML = state.queue.map((item, idx) => `
         <div class="bg-[#1E1915] border border-[#FAF8F3]/20 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
           <div class="min-w-0 flex-1">
-            <span class="font-bold text-amber-300 mr-1.5">#${idx + 1} [${escapeHtml(item.dept)}]</span>
+            <span class="font-bold text-amber-300 mr-1.5">#${idx + 1} 대기 방송</span>
             <span class="text-[#EFE9DD] truncate">${escapeHtml(item.text)}</span>
           </div>
           <button onclick="removeFromQueue(${idx})" class="text-[#A89F94] hover:text-rose-300 px-2 py-0.5 text-[11px] font-bold">취소</button>
@@ -1848,7 +1829,7 @@
         if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-white animate-ping';
         if (text) text.textContent = 'ON AIR';
         if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#B9382C]/35 blur-3xl pointer-events-none transition-colors duration-500';
-        if (deptEl) deptEl.textContent = `📡 송출 부서: ${deptText}`;
+        if (deptEl) deptEl.textContent = '📡 실시간 교내 방송 송출 중';
         if (bodyEl) bodyEl.textContent = bodyText;
         if (viz) viz.classList.remove('opacity-30');
       } else {
@@ -1989,7 +1970,6 @@
       document.getElementById('sched-date').value = getTodayDateStr();
       document.getElementById('sched-time').value = getFutureTimeStr(5);
       document.getElementById('sched-recurrence').value = 'once';
-      document.getElementById('sched-dept').value = composer.dept || '교무기획부';
       document.getElementById('sched-chime').value = composer.chime || 'standard';
       document.getElementById('sched-repeat').value = String(composer.repeat || 1);
       document.getElementById('sched-style').value = composer.aiStyle || '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
@@ -2015,7 +1995,6 @@
       document.getElementById('sched-date').value = getTodayDateStr();
       document.getElementById('sched-time').value = getFutureTimeStr(10);
       document.getElementById('sched-recurrence').value = 'once';
-      document.getElementById('sched-dept').value = document.getElementById('sender-dept')?.value || '교무기획부';
       document.getElementById('sched-chime').value = 'standard';
       document.getElementById('sched-repeat').value = '1';
       document.getElementById('sched-voice').value = 'ai:Kore';
@@ -2038,7 +2017,6 @@
       document.getElementById('sched-date').value = item.date || getTodayDateStr();
       document.getElementById('sched-time').value = item.time || '08:30';
       document.getElementById('sched-recurrence').value = item.recurrence || 'once';
-      document.getElementById('sched-dept').value = item.dept || '교무기획부';
       document.getElementById('sched-chime').value = item.chime || 'standard';
       document.getElementById('sched-repeat').value = String(item.repeat || 1);
       document.getElementById('sched-style').value = item.aiStyle || '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
@@ -2068,7 +2046,6 @@
       const dateVal = document.getElementById('sched-date').value;
       const timeVal = document.getElementById('sched-time').value;
       const recurrenceVal = document.getElementById('sched-recurrence').value;
-      const deptVal = document.getElementById('sched-dept').value.trim() || '교무기획부';
       const chimeVal = document.getElementById('sched-chime').value;
       const repeatVal = parseInt(document.getElementById('sched-repeat').value, 10) || 1;
       const voiceCombined = document.getElementById('sched-voice').value;
@@ -2090,7 +2067,7 @@
         date: dateVal || getTodayDateStr(),
         time: timeVal,
         recurrence: recurrenceVal,
-        dept: deptVal,
+        dept: '교내 방송',
         chime: chimeVal,
         repeat: repeatVal,
         voiceEngine: enginePart === 'browser' ? 'browser' : 'ai',
@@ -2175,7 +2152,6 @@
                 <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#EFE9DD] text-[#5C432E] border border-[#3A2E25]/30">
                   ${item.recurrence === 'once' ? escapeHtml(item.date) : recLabels[item.recurrence] || '반복'}
                 </span>
-                <span class="text-xs font-extrabold text-[#7C5638]">${escapeHtml(item.dept)}</span>
                 <span class="text-[11px] text-[#786F68]">• ${escapeHtml(voiceLabel)}</span>
               </div>
               <p class="text-xs sm:text-sm text-[#2B2623] font-medium line-clamp-2 pl-4">${escapeHtml(item.text)}</p>
@@ -2285,7 +2261,6 @@
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
               <span class="font-mono font-bold text-[#786F68]">${escapeHtml(item.timestamp || '')}</span>
-              <span class="font-extrabold text-[#7C5638]">[${escapeHtml(item.dept || '교무실')}]</span>
               ${item.isScheduled ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#EFE9DD] text-[#5C432E] border border-[#3A2E25]/30">예약</span>' : ''}
               <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${item.status === '방송 중' ? 'bg-[#FDECEC] text-[#B9382C] border border-[#B9382C]' : 'bg-[#FAF8F3] text-[#5C432E] border border-[#3A2E25]/30'}">${escapeHtml(item.status || '송출 완료')}</span>
             </div>
@@ -2311,9 +2286,7 @@
       const item = state.history.find(h => h.id === id);
       if (!item) return;
       const textArea = document.getElementById('broadcast-text');
-      const deptInput = document.getElementById('sender-dept');
       if (textArea) textArea.value = item.text || '';
-      if (deptInput) deptInput.value = item.dept || '교무기획부';
       updateCharCount();
       showToast('이전 방송 멘트를 입력창에 불러왔습니다.', 'info');
     }
