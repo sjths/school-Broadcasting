@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="교무실 PC에서 방송 멘트를 작성하면 방송실 음향 시스템 PC에서 차임벨과 함께 음성으로 송출하는 스마트 교내 방송 웹앱" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="상주공업고등학교 교무실 PC에서 방송 멘트를 작성하면 방송실 음향 시스템 PC에서 차임벨과 함께 음성으로 송출하는 스마트 교내 방송 웹앱" />
+  <meta name="theme-color" content="#F3EFE6" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="스마트 교내방송" />
-  <title>스마트 교내 방송 시스템 (Smart School PA)</title>
-  <!-- Inline SVG App Icon -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Ccircle cx='32' cy='32' r='8' fill='white'/%3E%3Cpath d='M20 20a17 17 0 0 0 0 24M44 20a17 17 0 0 1 0 24M13 13a27 27 0 0 0 0 38M51 13a27 27 0 0 1 0 38' stroke='white' stroke-width='4' stroke-linecap='round' fill='none'/%3E%3C/svg%3E" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="상주공고 교내방송" />
+  <title>상주공업고등학교 스마트 교내 방송 시스템</title>
+  <!-- Inline SVG App Icon (School Emblem) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' rx='44' fill='%23FAF8F3'/%3E%3Crect x='91' y='14' width='18' height='16' fill='%232C3333'/%3E%3Crect x='55' y='28' width='90' height='14' fill='%232C3333'/%3E%3Crect x='65' y='40' width='16' height='48' fill='%232C3333'/%3E%3Crect x='119' y='40' width='16' height='48' fill='%232C3333'/%3E%3Crect x='79' y='51' width='42' height='10' fill='%232C3333'/%3E%3Crect x='79' y='69' width='42' height='10' fill='%232C3333'/%3E%3Crect x='41' y='87' width='118' height='15' fill='%232C3333'/%3E%3Crect x='41' y='87' width='17' height='46' fill='%232C3333'/%3E%3Crect x='142' y='87' width='17' height='46' fill='%232C3333'/%3E%3Cpath fill-rule='evenodd' d='M66 108H134V133H66V108ZM80 116V125H120V116H80Z' fill='%232C3333'/%3E%3Cpolygon points='58,131 18,166 38,166 58,149 87,172 94,162' fill='%232C3333'/%3E%3Cpolygon points='142,131 182,166 162,166 142,149 113,172 106,162' fill='%232C3333'/%3E%3Cpath d='M77 153 A 26 26 0 1 0 123 153' stroke='%232C3333' stroke-width='12' fill='none'/%3E%3Crect x='82' y='139' width='36' height='11' fill='%232C3333'/%3E%3Crect x='94' y='139' width='12' height='43' fill='%232C3333'/%3E%3Crect x='82' y='172' width='36' height='11' fill='%232C3333'/%3E%3C/svg%3E" />
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Fonts: Noto Sans KR & JetBrains Mono -->
@@ -42,8 +42,29 @@
   <style>
     body {
       font-family: 'Noto Sans KR', sans-serif;
-      background-color: #f1f5f9;
-      color: #0f172a;
+      background-color: #F3EFE6;
+      color: #2B2623;
+    }
+    /* Signature dashboard outlined card & button depth */
+    .dash-card {
+      background-color: #FAF8F3;
+      border: 2px solid #3A2E25;
+      border-radius: 1.5rem;
+      box-shadow: 0 3px 0 rgba(58, 46, 37, 0.08);
+    }
+    .dash-item {
+      background-color: #FFFFFF;
+      border: 1.5px solid #3A2E25;
+      border-radius: 1rem;
+    }
+    .btn-chestnut {
+      background-color: #7C5638;
+      color: #FFFFFF;
+      border: 1.5px solid #3A2E25;
+      box-shadow: 0 2px 0 rgba(58, 46, 37, 0.18);
+    }
+    .btn-chestnut:hover {
+      background-color: #66452B;
     }
     /* Custom equalizer bar animation for active broadcasting */
     @keyframes eqBar {
@@ -63,98 +84,125 @@
     /* Custom scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    ::-webkit-scrollbar-thumb { background: #C7BDB0; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #7C5638; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col selection:bg-indigo-100 selection:text-indigo-900">
+<body class="min-h-screen flex flex-col selection:bg-[#7C5638]/20 selection:text-[#2B2623] relative overflow-x-hidden">
+
+  <!-- Subtle Decorative Organic Background Waves (Matches Staffroom Dashboard Canvas) -->
+  <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden="true">
+    <svg class="w-full h-full opacity-65" viewBox="0 0 1440 900" preserveAspectRatio="none">
+      <path d="M-100,180 C320,80 580,360 1020,220 C1280,140 1420,260 1560,210 L1560,950 L-100,950 Z" fill="#EAE3D5" />
+      <path d="M-100,560 C380,450 760,720 1540,510 L1540,950 L-100,950 Z" fill="#E4DCCB" opacity="0.55" />
+    </svg>
+  </div>
 
   <!-- Top Navigation Header -->
-  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-40">
+  <header class="bg-[#FAF8F3]/95 backdrop-blur-sm text-[#2B2623] border-b-2 border-[#3A2E25] sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-      <!-- Brand -->
+      <!-- Brand with School Emblem (교표) -->
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-inner">
-          <i data-lucide="radio" class="w-6 h-6 text-white"></i>
+        <div class="w-11 h-11 rounded-full bg-white border-2 border-[#3A2E25] flex items-center justify-center shadow-xs shrink-0" title="상주공업고등학교 교표">
+          <svg viewBox="0 0 200 200" class="w-7 h-7" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="상주공업고등학교 교표">
+            <rect x="91" y="10" width="18" height="16" fill="#2C3333"/>
+            <rect x="55" y="24" width="90" height="14" fill="#2C3333"/>
+            <rect x="65" y="36" width="16" height="50" fill="#2C3333"/>
+            <rect x="119" y="36" width="16" height="50" fill="#2C3333"/>
+            <rect x="79" y="48" width="42" height="10" fill="#2C3333"/>
+            <rect x="79" y="67" width="42" height="10" fill="#2C3333"/>
+            <rect x="41" y="85" width="118" height="15" fill="#2C3333"/>
+            <rect x="41" y="85" width="17" height="48" fill="#2C3333"/>
+            <rect x="142" y="85" width="17" height="48" fill="#2C3333"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M66 107H134V133H66V107ZM80 116V124H120V116H80Z" fill="#2C3333"/>
+            <polygon points="58,131 15,167 36,167 58,149 87,173 94,163" fill="#2C3333"/>
+            <polygon points="142,131 185,167 164,167 142,149 113,173 106,163" fill="#2C3333"/>
+            <path d="M77 153 A 26 26 0 1 0 123 153" stroke="#2C3333" stroke-width="12" stroke-linecap="butt" fill="none"/>
+            <rect x="82" y="139" width="36" height="11" fill="#2C3333"/>
+            <rect x="94" y="139" width="12" height="44" fill="#2C3333"/>
+            <rect x="82" y="173" width="36" height="11" fill="#2C3333"/>
+          </svg>
         </div>
         <div>
           <div class="flex items-center gap-2">
-            <h1 class="font-bold text-base sm:text-lg tracking-tight">스마트 교내 방송 시스템</h1>
-            <span class="hidden sm:inline-block text-[11px] font-mono bg-slate-800 text-indigo-300 px-2 py-0.5 rounded-full border border-slate-700">PA-CAST v2.1</span>
+            <h1 class="font-extrabold text-base sm:text-lg tracking-tight text-[#2B2623]">스마트 교내 방송</h1>
+            <span class="hidden sm:inline-block text-[11px] font-mono bg-[#EAE3D5] text-[#5C432E] px-2 py-0.5 rounded-full border border-[#3A2E25]/40 font-bold">PA-CAST</span>
           </div>
-          <p class="text-xs text-slate-400">교무실 원격 텍스트-음성(TTS) 방송 송출 플랫폼</p>
+          <p class="text-xs font-medium text-[#786F68]">상주공업고등학교 원격 음성 방송 시스템</p>
         </div>
       </div>
 
-      <!-- Mode Switcher Tabs -->
-      <nav class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 overflow-x-auto max-w-full">
-        <button onclick="switchMode('sender')" id="tab-sender" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
-          <i data-lucide="send" class="w-4 h-4"></i>
+      <!-- Mode Switcher Tabs (Segmented Pill Style) -->
+      <nav class="flex items-center bg-white p-1 rounded-full border-2 border-[#3A2E25] overflow-x-auto max-w-full shadow-xs">
+        <button onclick="switchMode('sender')" id="tab-sender" class="mode-tab flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all whitespace-nowrap">
+          <i data-lucide="send" class="w-3.5 h-3.5"></i>
           <span>교무실 PC (송출)</span>
         </button>
-        <button onclick="switchMode('receiver')" id="tab-receiver" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
-          <i data-lucide="speaker" class="w-4 h-4"></i>
+        <button onclick="switchMode('receiver')" id="tab-receiver" class="mode-tab flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all whitespace-nowrap">
+          <i data-lucide="speaker" class="w-3.5 h-3.5"></i>
           <span>방송실 PC (수신/앰프)</span>
         </button>
-        <button onclick="switchMode('split')" id="tab-split" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
-          <i data-lucide="columns" class="w-4 h-4"></i>
-          <span>통합 테스트 (1화면)</span>
+        <button onclick="switchMode('split')" id="tab-split" class="mode-tab flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all whitespace-nowrap">
+          <i data-lucide="columns" class="w-3.5 h-3.5"></i>
+          <span>통합 테스트</span>
         </button>
       </nav>
 
       <!-- Channel Code Badge & Settings -->
       <div class="flex items-center gap-2">
-        <button onclick="openSettingsModal()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm transition">
-          <span class="text-slate-400">학교 채널:</span>
-          <span id="header-channel-code" class="font-mono font-bold text-amber-400">SCHOOL-101</span>
-          <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
+        <button onclick="openSettingsModal()" class="flex items-center gap-2 bg-white hover:bg-[#EFE9DD] border-2 border-[#3A2E25] px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition shadow-xs">
+          <span class="text-[#786F68] font-medium">채널:</span>
+          <span id="header-channel-code" class="font-mono font-extrabold text-[#7C5638]">SCHOOL-101</span>
+          <i data-lucide="settings" class="w-4 h-4 text-[#3A2E25]"></i>
         </button>
       </div>
     </div>
   </header>
 
   <!-- Info Banner for Real-world Dual PC Usage -->
-  <div id="guide-banner" class="bg-indigo-50 border-b border-indigo-100 text-indigo-950 px-4 py-2.5 text-xs sm:text-sm">
-    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
-      <div class="flex items-center gap-2">
-        <i data-lucide="info" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+  <div id="guide-banner" class="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-4">
+    <div class="bg-[#FAF8F3] border-2 border-[#3A2E25] rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-[#2B2623] flex items-center justify-between gap-4 shadow-xs">
+      <div class="flex items-center gap-2.5">
+        <span class="w-6 h-6 rounded-full bg-[#EFE9DD] border border-[#3A2E25] flex items-center justify-center shrink-0">
+          <i data-lucide="megaphone" class="w-3.5 h-3.5 text-[#7C5638]"></i>
+        </span>
         <span>
-          <strong>사용 안내:</strong> 실제 학교에서는 <strong>방송실(앰프 연결) PC</strong>에서 <span class="underline font-semibold">[방송실 PC (수신/앰프)]</span> 탭을 켜두고, <strong>교무실 PC</strong>에서 동일한 <strong>학교 채널 코드</strong>로 접속해 방송을 송출하세요.
+          <strong>사용 안내:</strong> 방송실(앰프 연결) PC에서 <span class="underline font-bold text-[#7C5638]">[방송실 PC (수신/앰프)]</span> 화면을 켜두고, 교무실 PC에서 동일한 <strong>채널 코드</strong>로 접속해 방송을 송출하세요.
         </span>
       </div>
-      <button onclick="document.getElementById('guide-banner').classList.add('hidden')" class="text-indigo-400 hover:text-indigo-700 p-1">
+      <button onclick="document.getElementById('guide-banner').classList.add('hidden')" class="text-[#786F68] hover:text-[#2B2623] p-1">
         <i data-lucide="x" class="w-4 h-4"></i>
       </button>
     </div>
   </div>
 
   <!-- Main Workspace -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+  <main class="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5">
     <div id="workspace-grid" class="grid grid-cols-1 gap-6">
 
       <!-- ==================== SENDER PANEL (교무실 PC) ==================== -->
       <section id="panel-sender" class="space-y-5">
         <!-- Connection Status Bar -->
-        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+        <div class="dash-card p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-3">
-            <div id="sender-status-dot" class="w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-amber-100"></div>
+            <div id="sender-status-dot" class="w-3.5 h-3.5 rounded-full bg-amber-500 ring-4 ring-amber-200/70"></div>
             <div>
               <div class="flex items-center gap-2">
-                <h2 class="font-bold text-slate-800 text-base">교무실 송출 콘솔</h2>
-                <span id="sender-conn-badge" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                <h2 class="font-extrabold text-[#2B2623] text-base">교무실 송출 콘솔</h2>
+                <span id="sender-conn-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]">
                   방송실 연결 확인 중...
                 </span>
               </div>
-              <p id="sender-conn-desc" class="text-xs text-slate-500 mt-0.5">방송실 PC가 같은 채널 코드로 대기 중이면 즉시 실시간 송출됩니다.</p>
+              <p id="sender-conn-desc" class="text-xs text-[#786F68] mt-0.5">방송실 PC가 같은 채널 코드로 대기 중이면 즉시 실시간 송출됩니다.</p>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button onclick="reconnectNetwork()" class="px-3 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center gap-1.5 transition">
+            <button onclick="reconnectNetwork()" class="px-3.5 py-2 text-xs font-bold bg-white hover:bg-[#EFE9DD] text-[#2B2623] border border-[#3A2E25] rounded-full flex items-center gap-1.5 transition">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
               <span>연결 새로고침</span>
             </button>
             <button onclick="requestRemoteStop(null)" id="btn-sender-emergency-stop"
-              class="px-3.5 py-2 text-xs font-bold bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600 rounded-xl flex items-center gap-1.5 transition">
+              class="px-3.5 py-2 text-xs font-bold bg-[#FDECEC] hover:bg-[#B9382C] text-[#B9382C] hover:text-white border border-[#3A2E25] rounded-full flex items-center gap-1.5 transition">
               <i data-lucide="octagon-alert" class="w-3.5 h-3.5"></i>
               <span>방송 긴급 중단</span>
             </button>
@@ -162,50 +210,50 @@
         </div>
 
         <!-- Live Remote Broadcast Control Banner (Shown when broadcasting or queued) -->
-        <div id="sender-live-banner" class="hidden bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div id="sender-live-banner" class="hidden bg-[#FDECEC] border-2 border-[#B9382C] rounded-3xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div class="flex items-start gap-3 min-w-0 flex-1">
-            <span class="w-3 h-3 rounded-full bg-rose-600 animate-ping mt-1.5 shrink-0"></span>
+            <span class="w-3 h-3 rounded-full bg-[#B9382C] animate-ping mt-1.5 shrink-0"></span>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="text-xs font-extrabold text-rose-700 uppercase tracking-wide">ON AIR • 현재 방송실 송출 진행 중</span>
-                <span id="sender-live-dept" class="text-xs font-bold text-slate-700"></span>
+                <span class="text-xs font-extrabold text-[#B9382C] uppercase tracking-wide">ON AIR • 현재 방송실 송출 진행 중</span>
+                <span id="sender-live-dept" class="text-xs font-bold text-[#2B2623]"></span>
               </div>
-              <p id="sender-live-text" class="text-xs sm:text-sm text-slate-800 font-medium truncate mt-0.5"></p>
+              <p id="sender-live-text" class="text-xs sm:text-sm text-[#2B2623] font-semibold truncate mt-0.5"></p>
             </div>
           </div>
           <button type="button" onclick="requestRemoteStop(null)"
-            class="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white shadow-md shadow-rose-600/25 flex items-center justify-center gap-2 transition shrink-0">
-            <i data-lucide="square" class="w-4 h-4 fill-current"></i>
+            class="w-full sm:w-auto px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold bg-[#B9382C] hover:bg-[#992B21] active:scale-[0.98] text-white border border-[#3A2E25] shadow-sm flex items-center justify-center gap-2 transition shrink-0">
+            <i data-lucide="square" class="w-3.5 h-3.5 fill-current"></i>
             <span>방송 즉시 중단</span>
           </button>
         </div>
 
         <!-- Quick Templates -->
-        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+        <div class="dash-card p-4 sm:p-5">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-600"></i>
+            <h3 class="text-sm font-extrabold text-[#2B2623] flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4 text-[#7C5638]"></i>
               <span>자주 쓰는 학교 방송 템플릿</span>
             </h3>
-            <span class="text-xs text-slate-400">클릭 시 멘트 자동 입력</span>
+            <span class="text-xs font-medium text-[#786F68]">클릭 시 멘트 자동 입력</span>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="template-buttons">
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5" id="template-buttons">
             <!-- Populated by JS -->
           </div>
         </div>
 
         <!-- Broadcast Message Composer -->
-        <div class="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 space-y-4">
+        <div class="dash-card p-4 sm:p-6 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
-              <i data-lucide="mic" class="w-5 h-5 text-indigo-600"></i>
+            <h3 class="text-base font-extrabold text-[#2B2623] flex items-center gap-2">
+              <i data-lucide="mic" class="w-5 h-5 text-[#7C5638]"></i>
               <span>방송 멘트 작성</span>
             </h3>
             <!-- Department / Sender Name -->
             <div class="flex items-center gap-2">
-              <label for="sender-dept" class="text-xs font-medium text-slate-500">송출 부서:</label>
-              <input id="sender-dept" type="text" value="교무기획부" placeholder="예: 교무실, 3학년부"
-                class="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 w-32 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <label for="sender-dept" class="text-xs font-bold text-[#786F68]">송출 부서:</label>
+              <input id="sender-dept" type="text" value="교무기획부" placeholder="예: 교무실, 스마트토목교육부"
+                class="text-xs font-bold bg-white border border-[#3A2E25] rounded-full px-3.5 py-1.5 w-36 text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
             </div>
           </div>
 
@@ -213,30 +261,30 @@
           <div class="relative">
             <textarea id="broadcast-text" rows="5"
               placeholder="방송할 내용을 입력하세요. (예: 안내 말씀 드립니다. 잠시 후 13시 20분부터 본교 강당에서 전교생 안전 교육이 실시될 예정입니다. 각 학급 학생들은 담임 선생님의 인솔하에 질서 있게 이동해 주시기 바랍니다.)"
-              class="w-full rounded-xl border border-slate-300 bg-slate-50/50 p-4 text-sm sm:text-base text-slate-800 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none"></textarea>
-            <div class="flex items-center justify-between mt-1.5 px-1 text-xs text-slate-400">
+              class="w-full rounded-2xl border-2 border-[#3A2E25] bg-white p-4 text-sm sm:text-base text-[#2B2623] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#7C5638] transition resize-none"></textarea>
+            <div class="flex flex-wrap items-center justify-between gap-2 mt-2 px-1 text-xs text-[#786F68]">
               <div class="flex items-center gap-2">
-                <button type="button" onclick="insertPhrase('아, 아, 안내 말씀 드립니다. ')" class="hover:text-indigo-600 font-medium">+ 시작 인사</button>
+                <button type="button" onclick="insertPhrase('아, 아, 안내 말씀 드립니다. ')" class="hover:text-[#7C5638] font-bold">+ 시작 인사</button>
                 <span>•</span>
-                <button type="button" onclick="insertPhrase(' 다시 한번 안내 말씀 드립니다. ')" class="hover:text-indigo-600 font-medium">+ 반복 연결어</button>
+                <button type="button" onclick="insertPhrase(' 다시 한번 안내 말씀 드립니다. ')" class="hover:text-[#7C5638] font-bold">+ 반복 연결어</button>
                 <span>•</span>
-                <button type="button" onclick="insertPhrase(' 이상으로 안내 말씀을 마치겠습니다. 감사합니다.')" class="hover:text-indigo-600 font-medium">+ 맺음말</button>
+                <button type="button" onclick="insertPhrase(' 이상으로 안내 말씀을 마치겠습니다. 감사합니다.')" class="hover:text-[#7C5638] font-bold">+ 맺음말</button>
               </div>
-              <span id="char-count">0자</span>
+              <span id="char-count" class="font-mono font-bold text-[#5C432E]">0자</span>
             </div>
           </div>
 
           <!-- Audio & TTS Options Grid -->
-          <div class="pt-3 border-t border-slate-100 space-y-3">
+          <div class="pt-3 border-t border-[#3A2E25]/20 space-y-3">
             <!-- Voice Selection Box -->
-            <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3.5 space-y-3">
+            <div class="bg-[#EFE9DD]/75 border border-[#3A2E25] rounded-2xl p-3.5 space-y-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                  <i data-lucide="user-check" class="w-4 h-4 text-indigo-600"></i>
+                <span class="text-xs font-extrabold text-[#2B2623] flex items-center gap-1.5">
+                  <i data-lucide="user-check" class="w-4 h-4 text-[#7C5638]"></i>
                   <span>방송 목소리(성우) 및 톤 설정</span>
                 </span>
                 <button type="button" onclick="testSelectedVoiceSample()" id="btn-voice-sample"
-                  class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition flex items-center gap-1">
+                  class="px-3 py-1 rounded-full text-xs font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] transition flex items-center gap-1">
                   <i data-lucide="volume-1" class="w-3.5 h-3.5"></i>
                   <span>선택한 목소리 샘플 듣기</span>
                 </button>
@@ -245,9 +293,9 @@
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <!-- Voice Engine -->
                 <div>
-                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">음성 엔진</label>
+                  <label class="block text-[11px] font-bold text-[#5C432E] mb-1">음성 엔진</label>
                   <select id="opt-voice-engine" onchange="toggleVoiceEngineUI()"
-                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-2.5 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                     <option value="ai">✨ AI 아나운서 성우 (자연스러운 한국어)</option>
                     <option value="browser">💻 PC 내장 기본 음성 (오프라인 가능)</option>
                   </select>
@@ -255,9 +303,9 @@
 
                 <!-- AI Voice Character (Visible when engine === 'ai') -->
                 <div id="ai-voice-group">
-                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">AI 성우 선택 (남성 / 여성)</label>
+                  <label class="block text-[11px] font-bold text-[#5C432E] mb-1">AI 성우 선택 (남성 / 여성)</label>
                   <select id="opt-ai-voice"
-                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-2.5 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                     <optgroup label="👨 남성 성우 (Male)">
                       <option value="Charon">👨 [남성] Charon — 차분하고 신뢰감 있는 중저음 아나운서</option>
                       <option value="Orus">👨 [남성] Orus — 단정하고 또렷한 표준 교내 방송</option>
@@ -278,9 +326,9 @@
 
                 <!-- AI Speech Style (Visible when engine === 'ai') -->
                 <div id="ai-style-group">
-                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">낭독 분위기</label>
+                  <label class="block text-[11px] font-bold text-[#5C432E] mb-1">낭독 분위기</label>
                   <select id="opt-ai-style"
-                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-2.5 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                     <option value="정중하고 또렷한 학교 아나운서 톤으로 읽어주세요">표준 아나운서 톤</option>
                     <option value="밝고 친절하며 따뜻한 목소리로 읽어주세요">밝고 친절한 안내</option>
                     <option value="차분하고 신뢰감 있는 목소리로 읽어주세요">차분하고 진중한 안내</option>
@@ -290,9 +338,9 @@
 
                 <!-- Browser Built-in Voice Selector (Visible when engine === 'browser') -->
                 <div id="browser-voice-group" class="sm:col-span-2 hidden">
-                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">PC 설치 음성 선택</label>
+                  <label class="block text-[11px] font-bold text-[#5C432E] mb-1">PC 설치 음성 선택</label>
                   <select id="sender-browser-voice-select"
-                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-2.5 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                     <option value="">한국어 최적 음성 (자동 선택)</option>
                   </select>
                 </div>
@@ -303,8 +351,8 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <!-- Chime Type -->
               <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">시작/종료 차임벨</label>
-                <select id="opt-chime" class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <label class="block text-xs font-bold text-[#5C432E] mb-1">시작/종료 차임벨</label>
+                <select id="opt-chime" class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-medium text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                   <option value="standard">🔔 기본 4음 차임벨 (도-미-솔-도)</option>
                   <option value="westminster">🎶 부드러운 교내 차임벨</option>
                   <option value="alert">🚨 긴급/주의 알림음</option>
@@ -314,8 +362,8 @@
 
               <!-- Repeat Count -->
               <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">멘트 반복 횟수</label>
-                <select id="opt-repeat" class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <label class="block text-xs font-bold text-[#5C432E] mb-1">멘트 반복 횟수</label>
+                <select id="opt-repeat" class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-medium text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
                   <option value="1">1회 방송</option>
                   <option value="2">2회 연속 방송 (중요 안내)</option>
                 </select>
@@ -323,24 +371,24 @@
 
               <!-- Speech Rate -->
               <div>
-                <div class="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                  <span>낭독 속도 <span class="text-[10px] font-normal text-slate-400">(PC음성)</span></span>
-                  <span id="rate-label" class="font-mono text-indigo-600">0.95x</span>
+                <div class="flex justify-between text-xs font-bold text-[#5C432E] mb-1">
+                  <span>낭독 속도 <span class="text-[10px] font-normal text-[#786F68]">(PC음성)</span></span>
+                  <span id="rate-label" class="font-mono text-[#7C5638]">0.95x</span>
                 </div>
                 <input id="opt-rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"
                   oninput="document.getElementById('rate-label').textContent = parseFloat(this.value).toFixed(2) + 'x'"
-                  class="w-full accent-indigo-600 cursor-pointer mt-1.5" />
+                  class="w-full accent-[#7C5638] cursor-pointer mt-1.5" />
               </div>
 
               <!-- Speech Pitch -->
               <div>
-                <div class="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                  <span>목소리 톤 <span class="text-[10px] font-normal text-slate-400">(PC음성)</span></span>
-                  <span id="pitch-label" class="font-mono text-indigo-600">1.00</span>
+                <div class="flex justify-between text-xs font-bold text-[#5C432E] mb-1">
+                  <span>목소리 톤 <span class="text-[10px] font-normal text-[#786F68]">(PC음성)</span></span>
+                  <span id="pitch-label" class="font-mono text-[#7C5638]">1.00</span>
                 </div>
                 <input id="opt-pitch" type="range" min="0.8" max="1.2" step="0.05" value="1.0"
                   oninput="document.getElementById('pitch-label').textContent = parseFloat(this.value).toFixed(2)"
-                  class="w-full accent-indigo-600 cursor-pointer mt-1.5" />
+                  class="w-full accent-[#7C5638] cursor-pointer mt-1.5" />
               </div>
             </div>
           </div>
@@ -348,25 +396,25 @@
           <!-- Action Buttons -->
           <div class="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-end gap-2.5 pt-3">
             <button type="button" onclick="clearBroadcastText()"
-              class="px-4 py-3 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition flex items-center justify-center gap-1.5">
+              class="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold text-[#5C432E] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25] transition flex items-center justify-center gap-1.5">
               <i data-lucide="eraser" class="w-4 h-4"></i>
               <span>내용 지우기</span>
             </button>
 
             <button type="button" onclick="previewLocalBroadcast()"
-              class="px-4 py-3 rounded-xl text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition flex items-center justify-center gap-2">
-              <i data-lucide="headphones" class="w-4 h-4"></i>
+              class="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold text-[#2B2623] bg-[#EFE9DD] hover:bg-[#E4DCCB] border border-[#3A2E25] transition flex items-center justify-center gap-2">
+              <i data-lucide="headphones" class="w-4 h-4 text-[#7C5638]"></i>
               <span>내 PC 미리듣기</span>
             </button>
 
             <button type="button" onclick="openScheduleModalFromComposer()"
-              class="px-4 py-3 rounded-xl text-sm font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition flex items-center justify-center gap-2">
-              <i data-lucide="clock" class="w-4 h-4 text-amber-600"></i>
+              class="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold text-[#7C5638] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25] transition flex items-center justify-center gap-2">
+              <i data-lucide="clock" class="w-4 h-4 text-[#7C5638]"></i>
               <span>예약 방송 등록</span>
             </button>
 
             <button type="button" onclick="sendBroadcast()" id="btn-send-broadcast"
-              class="px-6 py-3 rounded-xl text-sm sm:text-base font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] shadow-md shadow-indigo-200 transition flex items-center justify-center gap-2">
+              class="btn-chestnut px-6 py-2.5 rounded-full text-sm sm:text-base font-extrabold active:scale-[0.99] transition flex items-center justify-center gap-2">
               <i data-lucide="radio" class="w-5 h-5"></i>
               <span>즉시 교내 방송 송출</span>
             </button>
@@ -374,53 +422,53 @@
         </div>
 
         <!-- Scheduled Broadcasts Management Card -->
-        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 space-y-3">
+        <div class="dash-card p-4 sm:p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <h3 class="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
-                <i data-lucide="calendar-clock" class="w-4 h-4 text-amber-600"></i>
-                <span>예약 방송 관리 (자동 송출)</span>
+              <h3 class="text-sm sm:text-base font-extrabold text-[#2B2623] flex items-center gap-1.5">
+                <i data-lucide="calendar-clock" class="w-4 h-4 text-[#7C5638]"></i>
+                <span>예약 방송 일정 (자동 송출)</span>
               </h3>
-              <span id="schedule-count-badge" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+              <span id="schedule-count-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-white text-[#7C5638] border border-[#3A2E25]">
                 0건 예약됨
               </span>
             </div>
 
             <div class="flex items-center gap-2">
-              <div class="text-xs font-mono bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <div class="text-xs font-mono font-bold bg-white text-[#2B2623] px-3 py-1.5 rounded-full border border-[#3A2E25] flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-[#3B7A57] animate-pulse"></span>
                 <span id="live-system-clock">--:--:--</span>
               </div>
               <button type="button" onclick="openNewScheduleModal()"
-                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition flex items-center gap-1">
+                class="btn-chestnut px-3.5 py-1.5 rounded-full text-xs font-extrabold transition flex items-center gap-1">
                 <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-                <span>새 예약 추가</span>
+                <span>새 예약</span>
               </button>
             </div>
           </div>
 
-          <p class="text-xs text-slate-500">
-            지정된 시각이 되면 방송실 음향 시스템으로 자동 송출됩니다. 등록된 예약은 언제든 <strong>수정</strong>하거나 <strong>삭제</strong>할 수 있습니다.
+          <p class="text-xs text-[#786F68]">
+            지정된 시각이 되면 방송실 음향 시스템으로 자동 송출됩니다. 등록된 일정은 언제든 <strong>고치기</strong> 또는 <strong>지우기</strong>가 가능합니다.
           </p>
 
           <div id="scheduled-broadcast-list" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-            <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
               등록된 예약 방송이 없습니다. 위 멘트를 작성한 뒤 <strong>[예약 방송 등록]</strong>을 눌러보세요.
             </div>
           </div>
         </div>
 
         <!-- Sent Broadcast History -->
-        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+        <div class="dash-card p-4 sm:p-5">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-              <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
+            <h3 class="text-sm font-extrabold text-[#2B2623] flex items-center gap-1.5">
+              <i data-lucide="history" class="w-4 h-4 text-[#7C5638]"></i>
               <span>오늘의 방송 송출 기록</span>
             </h3>
-            <button onclick="clearHistory()" class="text-xs text-slate-400 hover:text-red-500 transition">기록 비우기</button>
+            <button onclick="clearHistory()" class="text-xs font-bold text-[#786F68] hover:text-[#B9382C] transition">기록 비우기</button>
           </div>
-          <div id="sender-history-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
-            <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+          <div id="sender-history-list" class="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+            <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
               아직 송출된 방송 기록이 없습니다.
             </div>
           </div>
@@ -429,28 +477,28 @@
 
       <!-- ==================== RECEIVER PANEL (방송실 음향 PC) ==================== -->
       <section id="panel-receiver" class="space-y-5">
-        <!-- Main Receiver Console Card -->
-        <div class="bg-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-lg border border-slate-800 relative overflow-hidden">
+        <!-- Main Receiver Console Card (Warm Espresso Charcoal Theme) -->
+        <div class="bg-[#2A231E] text-[#FAF8F3] rounded-3xl p-5 sm:p-6 shadow-[0_4px_0_rgba(58,46,37,0.18)] border-2 border-[#3A2E25] relative overflow-hidden">
           <!-- Subtle Decorative Glow -->
-          <div id="receiver-glow" class="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none transition-colors duration-500"></div>
+          <div id="receiver-glow" class="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#7C5638]/20 blur-3xl pointer-events-none transition-colors duration-500"></div>
 
           <!-- Top Status Row -->
-          <div class="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-800">
+          <div class="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-[#FAF8F3]/15">
             <div class="flex items-center gap-3">
-              <div id="on-air-badge" class="px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-2 transition-all">
-                <span id="on-air-dot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+              <div id="on-air-badge" class="px-3.5 py-1.5 rounded-full font-mono font-extrabold text-xs sm:text-sm tracking-wider bg-[#3A3029] text-[#D7CEC2] border border-[#FAF8F3]/25 flex items-center gap-2 transition-all">
+                <span id="on-air-dot" class="w-2.5 h-2.5 rounded-full bg-[#A89F94]"></span>
                 <span id="on-air-text">STANDBY</span>
               </div>
               <div>
-                <h2 class="font-bold text-base sm:text-lg">방송실 음향 출력 시스템</h2>
-                <p class="text-xs text-slate-400">수신 채널: <span id="receiver-channel-display" class="font-mono text-amber-400 font-bold">SCHOOL-101</span></p>
+                <h2 class="font-extrabold text-base sm:text-lg text-[#FAF8F3]">방송실 음향 출력 시스템</h2>
+                <p class="text-xs text-[#C7BDB0]">상주공업고등학교 • 채널: <span id="receiver-channel-display" class="font-mono text-amber-300 font-bold">SCHOOL-101</span></p>
               </div>
             </div>
 
             <!-- Audio Unlock / Activation Button -->
             <div class="flex items-center gap-2">
               <button id="btn-activate-audio" onclick="activateReceiverAudio()"
-                class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition">
+                class="px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold bg-[#3B7A57] hover:bg-[#2F6346] text-white border border-[#FAF8F3]/30 shadow-md flex items-center gap-2 transition">
                 <i data-lucide="volume-2" class="w-4 h-4"></i>
                 <span>음향 시스템 대기 시작</span>
               </button>
@@ -458,8 +506,8 @@
           </div>
 
           <!-- Audio Activation Warning Banner (Shown until clicked) -->
-          <div id="audio-lock-notice" class="mt-4 bg-amber-500/15 border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3">
-            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+          <div id="audio-lock-notice" class="mt-4 bg-amber-500/15 border border-amber-400/40 rounded-2xl p-3.5 flex items-start gap-3">
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-300 shrink-0 mt-0.5"></i>
             <div class="text-xs text-amber-100 leading-relaxed">
               <strong class="text-amber-300 block mb-0.5">브라우저 음성 자동재생 허용 필요</strong>
               방송실 PC에서는 우측 상단의 <strong>[음향 시스템 대기 시작]</strong> 버튼을 한 번 눌러주셔야 교무실에서 보낸 방송 소리가 스피커로 즉시 출력됩니다. (화면 꺼짐 방지 기능도 함께 켜집니다.)
@@ -467,38 +515,58 @@
           </div>
 
           <!-- Live Broadcast Display / Teleprompter -->
-          <div class="mt-5 bg-slate-950/80 rounded-2xl p-5 sm:p-6 border border-slate-800/90 min-h-[210px] flex flex-col justify-between">
-            <div class="flex items-center justify-between text-xs text-slate-400 mb-3">
-              <span id="now-playing-dept" class="font-semibold text-indigo-400">수신 대기 중...</span>
+          <div class="mt-5 bg-[#1E1915] rounded-2xl p-5 sm:p-6 border border-[#FAF8F3]/15 min-h-[210px] flex flex-col justify-between relative overflow-hidden">
+            <!-- Faint Emblem Watermark -->
+            <svg viewBox="0 0 200 200" class="w-36 h-36 absolute right-4 bottom-4 opacity-[0.05] pointer-events-none" fill="none" aria-hidden="true">
+              <rect x="91" y="10" width="18" height="16" fill="#FAF8F3"/>
+              <rect x="55" y="24" width="90" height="14" fill="#FAF8F3"/>
+              <rect x="65" y="36" width="16" height="50" fill="#FAF8F3"/>
+              <rect x="119" y="36" width="16" height="50" fill="#FAF8F3"/>
+              <rect x="79" y="48" width="42" height="10" fill="#FAF8F3"/>
+              <rect x="79" y="67" width="42" height="10" fill="#FAF8F3"/>
+              <rect x="41" y="85" width="118" height="15" fill="#FAF8F3"/>
+              <rect x="41" y="85" width="17" height="48" fill="#FAF8F3"/>
+              <rect x="142" y="85" width="17" height="48" fill="#FAF8F3"/>
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M66 107H134V133H66V107ZM80 116V124H120V116H80Z" fill="#FAF8F3"/>
+              <polygon points="58,131 15,167 36,167 58,149 87,173 94,163" fill="#FAF8F3"/>
+              <polygon points="142,131 185,167 164,167 142,149 113,173 106,163" fill="#FAF8F3"/>
+              <path d="M77 153 A 26 26 0 1 0 123 153" stroke="#FAF8F3" stroke-width="12" fill="none"/>
+              <rect x="82" y="139" width="36" height="11" fill="#FAF8F3"/>
+              <rect x="94" y="139" width="12" height="44" fill="#FAF8F3"/>
+              <rect x="82" y="173" width="36" height="11" fill="#FAF8F3"/>
+            </svg>
+
+            <div class="flex items-center justify-between text-xs text-[#C7BDB0] mb-3 relative z-10">
+              <span id="now-playing-dept" class="font-bold text-amber-300">수신 대기 중...</span>
               <!-- Equalizer Visualizer -->
               <div id="visualizer-bars" class="flex items-end gap-1 h-5 opacity-30 transition-opacity">
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
-                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
+                <div class="w-1 bg-[#E05246] rounded-full eq-bar"></div>
               </div>
             </div>
 
-            <div id="now-playing-text" class="text-base sm:text-xl font-medium text-slate-300 leading-relaxed my-auto break-keep">
+            <div id="now-playing-text" class="text-base sm:text-xl font-medium text-[#EFE9DD] leading-relaxed my-auto break-keep relative z-10">
               교무실 PC에서 방송을 송출하면 이곳에 방송 자막이 표시되고 음향 시스템으로 음성 안내가 시작됩니다.
             </div>
 
-            <div class="flex flex-wrap items-center justify-between gap-2 pt-4 mt-4 border-t border-slate-800/80 text-xs text-slate-400">
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-4 mt-4 border-t border-[#FAF8F3]/15 text-xs text-[#C7BDB0] relative z-10">
               <div class="flex items-center gap-2">
                 <span>기본 예비 음성:</span>
-                <select id="receiver-voice-select" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none">
+                <select id="receiver-voice-select" class="bg-[#2A231E] border border-[#FAF8F3]/25 text-[#FAF8F3] rounded-full px-3 py-1 text-xs focus:outline-none">
                   <option value="">한국어 기본 음성 (자동)</option>
                 </select>
               </div>
               <div class="flex items-center gap-2">
-                <button onclick="testReceiverSpeaker()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition flex items-center gap-1.5">
-                  <i data-lucide="bell-ring" class="w-3.5 h-3.5 text-amber-400"></i>
+                <button onclick="testReceiverSpeaker()" class="px-3.5 py-1.5 rounded-full bg-[#3A3029] hover:bg-[#4A3D34] text-[#FAF8F3] border border-[#FAF8F3]/20 transition flex items-center gap-1.5 font-semibold">
+                  <i data-lucide="bell-ring" class="w-3.5 h-3.5 text-amber-300"></i>
                   <span>앰프/스피커 테스트</span>
                 </button>
-                <button onclick="emergencyStopBroadcast(false)" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 transition flex items-center gap-1.5">
+                <button onclick="emergencyStopBroadcast(false)" class="px-3.5 py-1.5 rounded-full bg-[#B9382C]/30 hover:bg-[#B9382C] text-rose-200 hover:text-white border border-rose-400/40 transition flex items-center gap-1.5 font-bold">
                   <i data-lucide="square" class="w-3.5 h-3.5"></i>
                   <span>방송 즉시 중지</span>
                 </button>
@@ -508,15 +576,15 @@
 
           <!-- Broadcast Queue Section -->
           <div class="mt-5">
-            <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span class="font-semibold flex items-center gap-1.5">
-                <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i>
+            <div class="flex items-center justify-between text-xs text-[#C7BDB0] mb-2">
+              <span class="font-bold flex items-center gap-1.5">
+                <i data-lucide="list-ordered" class="w-4 h-4 text-amber-300"></i>
                 <span>방송 대기열 (순차 자동 송출)</span>
               </span>
-              <span id="queue-count-badge" class="bg-slate-800 px-2 py-0.5 rounded-full font-mono">0건 대기</span>
+              <span id="queue-count-badge" class="bg-[#3A3029] border border-[#FAF8F3]/20 px-2.5 py-0.5 rounded-full font-mono text-[#FAF8F3]">0건 대기</span>
             </div>
             <div id="receiver-queue-list" class="space-y-2 max-h-40 overflow-y-auto">
-              <div class="text-xs text-slate-500 bg-slate-950/50 border border-slate-800/70 rounded-xl p-3 text-center">
+              <div class="text-xs text-[#A89F94] bg-[#1E1915] border border-[#FAF8F3]/15 rounded-2xl p-3 text-center">
                 대기 중인 예약/중복 방송이 없습니다.
               </div>
             </div>
@@ -524,12 +592,12 @@
         </div>
 
         <!-- Hardware & System Connection Tip Card -->
-        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
-          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-2">
-            <i data-lucide="cable" class="w-4 h-4 text-indigo-600"></i>
+        <div class="dash-card p-4 sm:p-5">
+          <h3 class="text-sm font-extrabold text-[#2B2623] flex items-center gap-2 mb-2">
+            <i data-lucide="cable" class="w-4 h-4 text-[#7C5638]"></i>
             <span>학교 음향 시스템(앰프) 연동 가이드</span>
           </h3>
-          <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed list-disc pl-4">
+          <ul class="text-xs text-[#5C432E] space-y-1.5 leading-relaxed list-disc pl-4">
             <li>방송실 PC의 <strong>오디오 출력(AUX/LINE OUT 또는 USB 오디오 인터페이스)</strong> 케이블이 학교 메인 방송 앰프 입력단자에 연결되어 있는지 확인하세요.</li>
             <li>원격 방송 시 방송실 앰프의 해당 채널 볼륨이 켜져 있어야 교실 스피커로 송출됩니다. (자동 릴레이 제어기가 없는 경우 앰프 전원을 상시 대기 모드로 유지하세요.)</li>
             <li>동일한 네트워크나 외부 인터넷 환경 모두에서 <strong>학교 채널 코드</strong>만 일치하면 실시간으로 작동합니다.</li>
@@ -541,43 +609,43 @@
   </main>
 
   <!-- Channel Settings Modal -->
-  <div id="settings-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4 overflow-y-auto">
-    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
+  <div id="settings-modal" class="fixed inset-0 bg-[#2B2623]/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-[#FAF8F3] rounded-3xl max-w-lg w-full p-6 shadow-2xl border-2 border-[#3A2E25] space-y-4 my-auto">
       <div class="flex items-center justify-between">
-        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <i data-lucide="settings" class="w-5 h-5 text-indigo-600"></i>
+        <h3 class="text-lg font-extrabold text-[#2B2623] flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-[#7C5638]"></i>
           <span>학교 방송 채널 및 배포 설정</span>
         </h3>
-        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600 p-1">
+        <button onclick="closeSettingsModal()" class="text-[#786F68] hover:text-[#2B2623] p-1">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <p class="text-xs text-slate-600 leading-relaxed">
+      <p class="text-xs text-[#5C432E] leading-relaxed">
         교무실 PC와 방송실 PC가 서로 통신하기 위한 고유 식별 코드입니다. 우리 학교만의 영문/숫자 조합 코드를 입력하세요.
       </p>
 
       <div>
-        <label class="block text-xs font-bold text-slate-700 mb-1.5">학교 고유 채널 코드</label>
-        <input id="modal-channel-input" type="text" placeholder="예: HANGUK-HIGH-01"
-          class="w-full font-mono uppercase text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        <p class="text-[11px] text-slate-400 mt-1">영문 대소문자, 숫자, 하이픈(-) 사용 가능 (공백 자동 제거)</p>
+        <label class="block text-xs font-extrabold text-[#2B2623] mb-1.5">학교 고유 채널 코드</label>
+        <input id="modal-channel-input" type="text" placeholder="예: SJTHS-101"
+          class="w-full font-mono uppercase text-sm bg-white border border-[#3A2E25] rounded-2xl px-3.5 py-2.5 text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
+        <p class="text-[11px] text-[#786F68] mt-1">영문 대소문자, 숫자, 하이픈(-) 사용 가능 (공백 자동 제거)</p>
       </div>
 
       <!-- Direct Deployment Bookmark Links -->
-      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-        <span class="block text-xs font-bold text-slate-700">PC별 전용 접속 링크 복사 (배포 후 즐겨찾기용)</span>
-        <p class="text-[11px] text-slate-500 leading-relaxed">
+      <div class="bg-white border border-[#3A2E25] rounded-2xl p-3.5 space-y-2">
+        <span class="block text-xs font-extrabold text-[#2B2623]">PC별 전용 접속 링크 복사 (배포 후 즐겨찾기용)</span>
+        <p class="text-[11px] text-[#786F68] leading-relaxed">
           웹 호스팅 배포 후 아래 링크를 각 PC 브라우저에 즐겨찾기해 두면 해당 화면과 채널로 즉시 열립니다.
         </p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
           <button type="button" onclick="copyDeployUrl('sender')"
-            class="px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 transition flex items-center justify-center gap-1.5">
+            class="px-3 py-2 rounded-full text-xs font-bold bg-[#FAF8F3] hover:bg-[#EFE9DD] text-[#7C5638] border border-[#3A2E25] transition flex items-center justify-center gap-1.5">
             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
             <span>교무실 PC(송출) 링크 복사</span>
           </button>
           <button type="button" onclick="copyDeployUrl('receiver')"
-            class="px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 transition flex items-center justify-center gap-1.5">
+            class="px-3 py-2 rounded-full text-xs font-bold bg-[#FAF8F3] hover:bg-[#EFE9DD] text-[#3B7A57] border border-[#3A2E25] transition flex items-center justify-center gap-1.5">
             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
             <span>방송실 PC(수신) 링크 복사</span>
           </button>
@@ -585,79 +653,79 @@
       </div>
 
       <!-- Optional API Key for External Static Hosting -->
-      <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5 space-y-1.5">
-        <label for="modal-apikey-input" class="block text-xs font-bold text-indigo-950">
-          AI 성우 음성용 Gemini API 키 <span class="font-normal text-slate-500">(외부 호스팅 배포 시 선택사항)</span>
+      <div class="bg-[#EFE9DD]/70 border border-[#3A2E25] rounded-2xl p-3.5 space-y-1.5">
+        <label for="modal-apikey-input" class="block text-xs font-extrabold text-[#2B2623]">
+          AI 성우 음성용 Gemini API 키 <span class="font-normal text-[#786F68]">(외부 호스팅 배포 시 선택사항)</span>
         </label>
         <input id="modal-apikey-input" type="password" placeholder="AIza... (미입력 시 PC 내장 한국어 음성으로 자동 작동)"
-          class="w-full font-mono text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-        <p class="text-[11px] text-slate-500 leading-relaxed">
+          class="w-full font-mono text-xs bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
+        <p class="text-[11px] text-[#786F68] leading-relaxed">
           API 키가 없어도 <strong>PC 내장 기본 음성</strong>으로 모든 방송 기능이 무료로 정상 작동합니다.
         </p>
       </div>
 
       <div class="flex items-center justify-end gap-2 pt-2">
-        <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200">취소</button>
-        <button onclick="saveChannelSettings()" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700">저장 및 연결</button>
+        <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-full text-xs font-bold text-[#5C432E] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25]">취소</button>
+        <button onclick="saveChannelSettings()" class="btn-chestnut px-5 py-2 rounded-full text-xs font-extrabold">저장 및 연결</button>
       </div>
     </div>
   </div>
 
   <!-- Schedule Create / Edit Modal -->
-  <div id="schedule-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4 overflow-y-auto">
-    <div class="bg-white rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-        <h3 id="schedule-modal-title" class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
-          <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+  <div id="schedule-modal" class="fixed inset-0 bg-[#2B2623]/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-[#FAF8F3] rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl border-2 border-[#3A2E25] space-y-4 my-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-[#3A2E25]/20">
+        <h3 id="schedule-modal-title" class="text-base sm:text-lg font-extrabold text-[#2B2623] flex items-center gap-2">
+          <i data-lucide="calendar-clock" class="w-5 h-5 text-[#7C5638]"></i>
           <span>새 예약 방송 등록</span>
         </h3>
-        <button type="button" onclick="closeScheduleModal()" class="text-slate-400 hover:text-slate-600 p-1">
+        <button type="button" onclick="closeScheduleModal()" class="text-[#786F68] hover:text-[#2B2623] p-1">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
       <div class="space-y-3.5">
         <!-- Date, Time & Recurrence -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber-50/70 p-3.5 rounded-xl border border-amber-200/80">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#EFE9DD]/75 p-3.5 rounded-2xl border border-[#3A2E25]">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">예약 날짜</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">예약 날짜</label>
             <input id="sched-date" type="date"
-              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">방송 시각</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">방송 시각</label>
             <input id="sched-time" type="time"
-              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">반복 주기</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">반복 주기</label>
             <select id="sched-recurrence"
-              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500">
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-semibold focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <option value="once">1회만 방송</option>
               <option value="weekdays">매주 평일 (월~금)</option>
               <option value="daily">매일 반복</option>
             </select>
           </div>
           <div class="sm:col-span-3 flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span class="text-[11px] font-medium text-slate-500 mr-1">빠른 시간 설정:</span>
-            <button type="button" onclick="adjustModalTime(1)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+1분 후</button>
-            <button type="button" onclick="adjustModalTime(5)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+5분 후</button>
-            <button type="button" onclick="adjustModalTime(10)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+10분 후</button>
-            <button type="button" onclick="adjustModalTime(30)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+30분 후</button>
+            <span class="text-[11px] font-bold text-[#5C432E] mr-1">빠른 시간 설정:</span>
+            <button type="button" onclick="adjustModalTime(1)" class="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] rounded-full transition">+1분 후</button>
+            <button type="button" onclick="adjustModalTime(5)" class="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] rounded-full transition">+5분 후</button>
+            <button type="button" onclick="adjustModalTime(10)" class="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] rounded-full transition">+10분 후</button>
+            <button type="button" onclick="adjustModalTime(30)" class="px-2.5 py-1 text-[11px] font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] rounded-full transition">+30분 후</button>
           </div>
         </div>
 
         <!-- Department & Chime & Repeat -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">송출 부서</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">송출 부서</label>
             <input id="sched-dept" type="text" placeholder="예: 교무기획부"
-              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">차임벨</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">차임벨</label>
             <select id="sched-chime"
-              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <option value="standard">🔔 기본 4음 차임벨</option>
               <option value="westminster">🎶 부드러운 교내 차임벨</option>
               <option value="alert">🚨 긴급/주의 알림음</option>
@@ -665,9 +733,9 @@
             </select>
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">반복 횟수</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">반복 횟수</label>
             <select id="sched-repeat"
-              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              class="w-full text-xs sm:text-sm bg-white border border-[#3A2E25] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <option value="1">1회 방송</option>
               <option value="2">2회 연속 방송</option>
             </select>
@@ -677,9 +745,9 @@
         <!-- Voice Selection inside Modal -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">방송 목소리 (성우)</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">방송 목소리 (성우)</label>
             <select id="sched-voice"
-              class="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <optgroup label="👨 남성 성우 (Male)">
                 <option value="ai:Charon">👨 [남성] Charon — 차분한 중저음 아나운서</option>
                 <option value="ai:Orus">👨 [남성] Orus — 단정한 표준 교내 방송</option>
@@ -702,9 +770,9 @@
             </select>
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">낭독 분위기</label>
+            <label class="block text-xs font-bold text-[#2B2623] mb-1">낭독 분위기</label>
             <select id="sched-style"
-              class="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              class="w-full text-xs bg-white border border-[#3A2E25] rounded-xl px-3 py-2 font-semibold text-[#2B2623] focus:outline-none focus:ring-2 focus:ring-[#7C5638]">
               <option value="정중하고 또렷한 학교 아나운서 톤으로 읽어주세요">표준 아나운서 톤</option>
               <option value="밝고 친절하며 따뜻한 목소리로 읽어주세요">밝고 친절한 안내</option>
               <option value="차분하고 신뢰감 있는 목소리로 읽어주세요">차분하고 진중한 안내</option>
@@ -715,20 +783,20 @@
 
         <!-- Scheduled Broadcast Text -->
         <div>
-          <label class="block text-xs font-bold text-slate-700 mb-1">예약 방송 멘트</label>
+          <label class="block text-xs font-bold text-[#2B2623] mb-1">예약 방송 멘트</label>
           <textarea id="sched-text" rows="4"
             placeholder="예약된 시각에 송출될 방송 멘트를 입력하세요."
-            class="w-full rounded-xl border border-slate-300 bg-slate-50/50 p-3 text-sm text-slate-800 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+            class="w-full rounded-2xl border border-[#3A2E25] bg-white p-3 text-sm text-[#2B2623] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#7C5638] resize-none"></textarea>
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+      <div class="flex items-center justify-end gap-2 pt-3 border-t border-[#3A2E25]/20">
         <button type="button" onclick="closeScheduleModal()"
-          class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">
+          class="px-4 py-2 rounded-full text-xs sm:text-sm font-bold text-[#5C432E] bg-white hover:bg-[#EFE9DD] border border-[#3A2E25] transition">
           취소
         </button>
         <button type="button" onclick="saveScheduleModal()" id="btn-save-schedule"
-          class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition flex items-center gap-1.5">
+          class="btn-chestnut px-5 py-2 rounded-full text-xs sm:text-sm font-extrabold transition flex items-center gap-1.5">
           <i data-lucide="check" class="w-4 h-4"></i>
           <span>예약 저장하기</span>
         </button>
@@ -923,9 +991,9 @@
         const tab = document.getElementById(`tab-${m}`);
         if (!tab) return;
         if (m === mode) {
-          tab.className = 'mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all whitespace-nowrap';
+          tab.className = 'mode-tab flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-extrabold bg-[#7C5638] text-white shadow-xs transition-all whitespace-nowrap';
         } else {
-          tab.className = 'mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/60 transition-all whitespace-nowrap';
+          tab.className = 'mode-tab flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold text-[#5C432E] hover:text-[#2B2623] hover:bg-[#EFE9DD] transition-all whitespace-nowrap';
         }
       });
 
@@ -953,9 +1021,12 @@
       if (!container) return;
       container.innerHTML = TEMPLATES.map((tpl, idx) => `
         <button type="button" onclick="applyTemplate(${idx})"
-          class="text-left px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 transition group">
-          <div class="text-xs font-bold text-slate-700 group-hover:text-indigo-700 truncate">${escapeHtml(tpl.title)}</div>
-          <div class="text-[11px] text-slate-400 truncate mt-0.5">${escapeHtml(tpl.dept)}</div>
+          class="dash-item text-left px-3.5 py-2.5 hover:bg-[#EFE9DD] transition group">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span>
+            <span class="text-xs font-extrabold text-[#2B2623] group-hover:text-[#7C5638] truncate">${escapeHtml(tpl.title)}</span>
+          </div>
+          <div class="text-[11px] font-medium text-[#786F68] truncate mt-0.5 pl-3.5">${escapeHtml(tpl.dept)}</div>
         </button>
       `).join('');
     }
@@ -1393,7 +1464,7 @@
         const btn = document.getElementById('btn-activate-audio');
         if (notice) notice.classList.add('hidden');
         if (btn) {
-          btn.className = 'px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-800 text-emerald-400 border border-emerald-500/40 flex items-center gap-2 transition';
+          btn.className = 'px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold bg-[#3A3029] text-emerald-300 border border-emerald-400/50 flex items-center gap-2 transition';
           btn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>음향 출력 대기 중 (활성화됨)</span>`;
           lucide.createIcons();
         }
@@ -1592,12 +1663,12 @@
         if (deptEl) deptEl.textContent = `[${activeItem.dept}]`;
         if (textEl) textEl.textContent = activeItem.text;
         if (topStopBtn) {
-          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white border border-rose-600 rounded-xl flex items-center gap-1.5 shadow-sm animate-pulse transition';
+          topStopBtn.className = 'px-3.5 py-2 text-xs font-extrabold bg-[#B9382C] hover:bg-[#992B21] text-white border border-[#3A2E25] rounded-full flex items-center gap-1.5 shadow-sm animate-pulse transition';
         }
       } else {
         banner.classList.add('hidden');
         if (topStopBtn) {
-          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600 rounded-xl flex items-center gap-1.5 transition';
+          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-[#FDECEC] hover:bg-[#B9382C] text-[#B9382C] hover:text-white border border-[#3A2E25] rounded-full flex items-center gap-1.5 transition';
         }
       }
     }
@@ -1623,7 +1694,7 @@
       if (!list) return;
       if (state.history.length === 0) {
         list.innerHTML = `
-          <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+          <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
             아직 송출된 방송 기록이 없습니다.
           </div>`;
         return;
@@ -1632,34 +1703,35 @@
       const stoppableStatuses = ['송출 요청', '방송실 수신 완료', '대기열 등록', '방송 중'];
 
       list.innerHTML = state.history.map((item, idx) => {
-        let badgeStyle = 'bg-slate-100 text-slate-600';
-        if (item.status === '방송 중') badgeStyle = 'bg-rose-100 text-rose-700 animate-pulse';
-        else if (item.status === '송출 완료') badgeStyle = 'bg-emerald-100 text-emerald-700';
-        else if (item.status === '대기열 등록' || item.status === '방송실 수신 완료') badgeStyle = 'bg-amber-100 text-amber-700';
-        else if (item.status === '강제 중단됨' || item.status === '연결 실패') badgeStyle = 'bg-rose-100 text-rose-800';
+        let badgeStyle = 'bg-[#EFE9DD] text-[#5C432E]';
+        if (item.status === '방송 중') badgeStyle = 'bg-[#FDECEC] text-[#B9382C] animate-pulse';
+        else if (item.status === '송출 완료') badgeStyle = 'bg-[#E6F2EC] text-[#3B7A57]';
+        else if (item.status === '대기열 등록' || item.status === '방송실 수신 완료') badgeStyle = 'bg-amber-100 text-amber-900';
+        else if (item.status === '강제 중단됨' || item.status === '연결 실패') badgeStyle = 'bg-[#FDECEC] text-[#B9382C]';
 
         const canStop = stoppableStatuses.includes(item.status);
 
         return `
-          <div class="p-3 rounded-xl border ${canStop ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200 bg-slate-50/60'} hover:bg-white transition flex items-start justify-between gap-3">
+          <div class="dash-item p-3.5 ${canStop ? 'bg-[#FDECEC]/60 border-[#B9382C]' : 'bg-white'} transition flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span class="text-[11px] font-mono text-slate-400">${escapeHtml(item.timestamp)}</span>
-                <span class="text-xs font-bold text-indigo-700">${escapeHtml(item.dept)}</span>
-                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeStyle}">${escapeHtml(item.status)}</span>
+                <span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span>
+                <span class="text-[11px] font-mono text-[#786F68]">${escapeHtml(item.timestamp)}</span>
+                <span class="text-xs font-extrabold text-[#7C5638]">${escapeHtml(item.dept)}</span>
+                <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-[#3A2E25]/25 ${badgeStyle}">${escapeHtml(item.status)}</span>
               </div>
-              <p class="text-xs text-slate-700 line-clamp-2 leading-relaxed">${escapeHtml(item.text)}</p>
+              <p class="text-xs text-[#2B2623] line-clamp-2 leading-relaxed pl-4">${escapeHtml(item.text)}</p>
             </div>
-            <div class="flex items-center gap-1.5 shrink-0">
+            <div class="flex items-center gap-2 shrink-0">
               ${canStop ? `
                 <button onclick="requestRemoteStop('${escapeHtml(item.id)}')" title="이 방송 즉시 중단"
-                  class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition flex items-center gap-1">
+                  class="px-3 py-1 rounded-full text-xs font-extrabold bg-[#B9382C] hover:bg-[#992B21] text-white border border-[#3A2E25] transition flex items-center gap-1">
                   <i data-lucide="square" class="w-3 h-3 fill-current"></i>
                   <span>중단</span>
                 </button>
               ` : ''}
               <button onclick="reloadHistoryItem(${idx})" title="멘트 다시 불러오기"
-                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-600 transition">
+                class="text-xs font-extrabold text-[#7C5638] hover:underline px-1.5 py-1 transition">
                 불러오기
               </button>
             </div>
@@ -1771,27 +1843,27 @@
       const glow = document.getElementById('receiver-glow');
 
       if (active && item) {
-        if (badge) badge.className = 'px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-rose-600 text-white border border-rose-500 shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all';
+        if (badge) badge.className = 'px-3.5 py-1.5 rounded-full font-mono font-extrabold text-xs sm:text-sm tracking-wider bg-[#B9382C] text-white border border-[#FAF8F3]/40 shadow-lg flex items-center gap-2 transition-all';
         if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-white animate-ping';
         if (text) text.textContent = 'ON AIR';
         if (deptEl) deptEl.textContent = `송출 부서: ${item.dept} (${item.timestamp})`;
         if (bodyEl) {
           bodyEl.textContent = item.text;
-          bodyEl.className = 'text-base sm:text-xl font-bold text-white leading-relaxed my-auto break-keep';
+          bodyEl.className = 'text-base sm:text-xl font-extrabold text-white leading-relaxed my-auto break-keep relative z-10';
         }
         if (bars) bars.classList.remove('opacity-30');
-        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-rose-500/25 blur-3xl pointer-events-none transition-colors duration-500';
+        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#B9382C]/30 blur-3xl pointer-events-none transition-colors duration-500';
       } else {
-        if (badge) badge.className = 'px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-2 transition-all';
-        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+        if (badge) badge.className = 'px-3.5 py-1.5 rounded-full font-mono font-extrabold text-xs sm:text-sm tracking-wider bg-[#3A3029] text-[#D7CEC2] border border-[#FAF8F3]/25 flex items-center gap-2 transition-all';
+        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-[#A89F94]';
         if (text) text.textContent = 'STANDBY';
         if (deptEl) deptEl.textContent = '수신 대기 중...';
         if (bodyEl) {
           bodyEl.textContent = '교무실 PC에서 방송을 송출하면 이곳에 방송 자막이 표시되고 음향 시스템으로 음성 안내가 시작됩니다.';
-          bodyEl.className = 'text-base sm:text-xl font-medium text-slate-300 leading-relaxed my-auto break-keep';
+          bodyEl.className = 'text-base sm:text-xl font-medium text-[#EFE9DD] leading-relaxed my-auto break-keep relative z-10';
         }
         if (bars) bars.classList.add('opacity-30');
-        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none transition-colors duration-500';
+        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#7C5638]/20 blur-3xl pointer-events-none transition-colors duration-500';
       }
     }
 
@@ -1803,21 +1875,21 @@
 
       if (state.queue.length === 0) {
         list.innerHTML = `
-          <div class="text-xs text-slate-500 bg-slate-950/50 border border-slate-800/70 rounded-xl p-3 text-center">
+          <div class="text-xs text-[#A89F94] bg-[#1E1915] border border-[#FAF8F3]/15 rounded-2xl p-3 text-center">
             대기 중인 예약/중복 방송이 없습니다.
           </div>`;
         return;
       }
 
       list.innerHTML = state.queue.map((q, i) => `
-        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs">
+        <div class="bg-[#1E1915] border border-[#FAF8F3]/20 rounded-2xl p-2.5 flex items-center justify-between gap-2 text-xs">
           <div class="min-w-0 flex-1">
-            <span class="font-mono text-amber-400 font-bold mr-1.5">#${i + 1}</span>
-            <span class="font-semibold text-indigo-300 mr-1.5">[${escapeHtml(q.dept)}]</span>
-            <span class="text-slate-300 truncate">${escapeHtml(q.text)}</span>
+            <span class="font-mono text-amber-300 font-bold mr-1.5">#${i + 1}</span>
+            <span class="font-bold text-[#EFE9DD] mr-1.5">[${escapeHtml(q.dept)}]</span>
+            <span class="text-[#C7BDB0] truncate">${escapeHtml(q.text)}</span>
           </div>
           <button onclick="handleStopBroadcastCommand({ targetId: '${escapeHtml(q.id)}' }, false)"
-            class="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white transition shrink-0">
+            class="px-2.5 py-1 rounded-full bg-[#B9382C]/30 hover:bg-[#B9382C] text-rose-200 hover:text-white transition shrink-0 font-bold">
             취소
           </button>
         </div>
@@ -1923,7 +1995,7 @@
       const future = new Date(Date.now() + 5 * 60 * 1000);
 
       document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+        <i data-lucide="calendar-clock" class="w-5 h-5 text-[#7C5638]"></i>
         <span>새 예약 방송 등록</span>
       `;
       document.getElementById('sched-date').value = formatDateYMD(future);
@@ -1947,7 +2019,7 @@
       const future = new Date(Date.now() + 5 * 60 * 1000);
 
       document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+        <i data-lucide="calendar-clock" class="w-5 h-5 text-[#7C5638]"></i>
         <span>새 예약 방송 등록</span>
       `;
       document.getElementById('sched-date').value = formatDateYMD(future);
@@ -1972,7 +2044,7 @@
 
       state.editingScheduleId = id;
       document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="edit-3" class="w-5 h-5 text-indigo-600"></i>
+        <i data-lucide="edit-3" class="w-5 h-5 text-[#7C5638]"></i>
         <span>예약 방송 수정</span>
       `;
       document.getElementById('sched-date').value = item.date;
@@ -2108,7 +2180,7 @@
 
       if (state.schedules.length === 0) {
         list.innerHTML = `
-          <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+          <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
             등록된 예약 방송이 없습니다. 위 멘트를 작성한 뒤 <strong>[예약 방송 등록]</strong>을 눌러보세요.
           </div>`;
         return;
@@ -2126,33 +2198,34 @@
         const voiceShort = (item.voiceCode || 'ai:Kore').replace('ai:', 'AI ').replace('browser:', 'PC음성');
 
         return `
-          <div class="p-3.5 rounded-xl border ${item.active ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-100/70 opacity-75'} transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="dash-item p-3.5 ${item.active ? 'bg-white' : 'bg-[#EFE9DD]/60 opacity-75'} transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded-lg ${item.active ? 'bg-amber-500 text-white' : 'bg-slate-400 text-white'}">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-xs ${item.active ? 'bg-[#7C5638]' : 'bg-[#A89F94]'} shrink-0"></span>
+                <span class="font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-[#3A2E25] ${item.active ? 'bg-[#7C5638] text-white' : 'bg-[#EAE3D5] text-[#5C432E]'}">
                   ${item.recurrence === 'once' ? escapeHtml(item.date) : ''} ${escapeHtml(item.time)}
                 </span>
-                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#FAF8F3] border border-[#3A2E25]/30 text-[#5C432E]">
                   ${escapeHtml(recLabel)}
                 </span>
-                <span class="text-xs font-bold text-indigo-700">${escapeHtml(item.dept)}</span>
-                <span class="text-[11px] text-slate-400">• ${escapeHtml(voiceShort)}</span>
+                <span class="text-xs font-extrabold text-[#2B2623]">${escapeHtml(item.dept)}</span>
+                <span class="text-[11px] text-[#786F68]">• ${escapeHtml(voiceShort)}</span>
               </div>
-              <p class="text-xs text-slate-700 line-clamp-2 leading-relaxed">${escapeHtml(item.text)}</p>
+              <p class="text-xs font-medium text-[#2B2623] line-clamp-2 leading-relaxed pl-4">${escapeHtml(item.text)}</p>
             </div>
 
-            <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+            <div class="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
               <button type="button" onclick="toggleScheduleActive('${escapeHtml(item.id)}')"
-                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${item.active ? 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-100'}">
+                class="px-2.5 py-1 rounded-full text-xs font-bold border border-[#3A2E25] transition ${item.active ? 'bg-[#E6F2EC] text-[#3B7A57]' : 'bg-[#FAF8F3] text-[#786F68]'}">
                 ${item.active ? '활성' : '정지됨'}
               </button>
               <button type="button" onclick="openEditScheduleModal('${escapeHtml(item.id)}')"
-                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-700 transition">
-                수정
+                class="text-xs font-extrabold text-[#7C5638] hover:underline px-1 py-1 transition">
+                고치기
               </button>
               <button type="button" onclick="handleDeleteScheduleClick('${escapeHtml(item.id)}')"
-                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${isConfirmingDelete ? 'bg-rose-600 border-rose-600 text-white' : 'bg-white border-slate-200 hover:border-rose-300 hover:text-rose-600 text-slate-600'}">
-                ${isConfirmingDelete ? '삭제 확인' : '삭제'}
+                class="text-xs font-extrabold transition px-1.5 py-1 rounded-full ${isConfirmingDelete ? 'bg-[#B9382C] text-white px-2.5 border border-[#3A2E25]' : 'text-[#B9382C] hover:underline'}">
+                ${isConfirmingDelete ? '지우기 확인' : '지우기'}
               </button>
             </div>
           </div>
@@ -2370,15 +2443,15 @@
       const desc = document.getElementById('sender-conn-desc');
 
       if (isConnected) {
-        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100';
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-[#3B7A57] ring-4 ring-[#3B7A57]/20';
         if (badge) {
-          badge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
+          badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E6F2EC] text-[#3B7A57] border border-[#3A2E25]';
           badge.textContent = '방송실 연결됨';
         }
       } else {
-        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-amber-100';
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 ring-4 ring-amber-200/70';
         if (badge) {
-          badge.className = 'text-xs font-medium px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200';
+          badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]';
           badge.textContent = '방송실 대기 중';
         }
       }
@@ -2436,9 +2509,9 @@
       if (!container) return;
 
       const styles = {
-        success: 'bg-slate-900 text-white border-emerald-500',
-        error: 'bg-rose-950 text-white border-rose-500',
-        info: 'bg-slate-900 text-white border-indigo-400'
+        success: 'bg-[#FAF8F3] text-[#2B2623] border-[#3A2E25]',
+        error: 'bg-[#FDECEC] text-[#2B2623] border-[#B9382C]',
+        info: 'bg-[#FAF8F3] text-[#2B2623] border-[#7C5638]'
       };
       const iconNames = {
         success: 'check-circle-2',
@@ -2446,15 +2519,15 @@
         info: 'info'
       };
       const iconColors = {
-        success: 'text-emerald-400',
-        error: 'text-rose-400',
-        info: 'text-indigo-400'
+        success: 'text-[#3B7A57]',
+        error: 'text-[#B9382C]',
+        info: 'text-[#7C5638]'
       };
 
       const toast = document.createElement('div');
-      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border-l-4 text-xs sm:text-sm font-medium transition-all duration-300 ${styles[type] || styles.info}`;
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border-2 text-xs sm:text-sm font-bold transition-all duration-300 ${styles[type] || styles.info}`;
       toast.innerHTML = `
-        <i data-lucide="${iconNames[type] || 'info'}" class="w-4 h-4 shrink-0 ${iconColors[type] || 'text-indigo-400'}"></i>
+        <i data-lucide="${iconNames[type] || 'info'}" class="w-4 h-4 shrink-0 ${iconColors[type] || 'text-[#7C5638]'}"></i>
         <span class="leading-snug">${escapeHtml(message)}</span>
       `;
       container.appendChild(toast);
