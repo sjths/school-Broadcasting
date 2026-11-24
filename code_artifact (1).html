@@ -1,0 +1,2499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="교무실 PC에서 방송 멘트를 작성하면 방송실 음향 시스템 PC에서 차임벨과 함께 음성으로 송출하는 스마트 교내 방송 웹앱" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="스마트 교내방송" />
+  <title>스마트 교내 방송 시스템 (Smart School PA)</title>
+  <!-- Inline SVG App Icon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Ccircle cx='32' cy='32' r='8' fill='white'/%3E%3Cpath d='M20 20a17 17 0 0 0 0 24M44 20a17 17 0 0 1 0 24M13 13a27 27 0 0 0 0 38M51 13a27 27 0 0 1 0 38' stroke='white' stroke-width='4' stroke-linecap='round' fill='none'/%3E%3C/svg%3E" />
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Noto Sans KR & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tone.js for high-quality synthesized school chimes -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- PeerJS for PC-to-PC real-time communication without custom backend -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans KR"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          animation: {
+            'pulse-fast': 'pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    /* Custom equalizer bar animation for active broadcasting */
+    @keyframes eqBar {
+      0%, 100% { height: 18%; }
+      50% { height: 95%; }
+    }
+    .eq-bar {
+      animation: eqBar 0.7s ease-in-out infinite;
+    }
+    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
+    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
+    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
+    .eq-bar:nth-child(5) { animation-delay: 0.2s; }
+    .eq-bar:nth-child(6) { animation-delay: 0.35s; }
+    .eq-bar:nth-child(7) { animation-delay: 0.1s; }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-indigo-100 selection:text-indigo-900">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-inner">
+          <i data-lucide="radio" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base sm:text-lg tracking-tight">스마트 교내 방송 시스템</h1>
+            <span class="hidden sm:inline-block text-[11px] font-mono bg-slate-800 text-indigo-300 px-2 py-0.5 rounded-full border border-slate-700">PA-CAST v2.1</span>
+          </div>
+          <p class="text-xs text-slate-400">교무실 원격 텍스트-음성(TTS) 방송 송출 플랫폼</p>
+        </div>
+      </div>
+
+      <!-- Mode Switcher Tabs -->
+      <nav class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700 overflow-x-auto max-w-full">
+        <button onclick="switchMode('sender')" id="tab-sender" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
+          <i data-lucide="send" class="w-4 h-4"></i>
+          <span>교무실 PC (송출)</span>
+        </button>
+        <button onclick="switchMode('receiver')" id="tab-receiver" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
+          <i data-lucide="speaker" class="w-4 h-4"></i>
+          <span>방송실 PC (수신/앰프)</span>
+        </button>
+        <button onclick="switchMode('split')" id="tab-split" class="mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap">
+          <i data-lucide="columns" class="w-4 h-4"></i>
+          <span>통합 테스트 (1화면)</span>
+        </button>
+      </nav>
+
+      <!-- Channel Code Badge & Settings -->
+      <div class="flex items-center gap-2">
+        <button onclick="openSettingsModal()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm transition">
+          <span class="text-slate-400">학교 채널:</span>
+          <span id="header-channel-code" class="font-mono font-bold text-amber-400">SCHOOL-101</span>
+          <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Info Banner for Real-world Dual PC Usage -->
+  <div id="guide-banner" class="bg-indigo-50 border-b border-indigo-100 text-indigo-950 px-4 py-2.5 text-xs sm:text-sm">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+        <span>
+          <strong>사용 안내:</strong> 실제 학교에서는 <strong>방송실(앰프 연결) PC</strong>에서 <span class="underline font-semibold">[방송실 PC (수신/앰프)]</span> 탭을 켜두고, <strong>교무실 PC</strong>에서 동일한 <strong>학교 채널 코드</strong>로 접속해 방송을 송출하세요.
+        </span>
+      </div>
+      <button onclick="document.getElementById('guide-banner').classList.add('hidden')" class="text-indigo-400 hover:text-indigo-700 p-1">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+    <div id="workspace-grid" class="grid grid-cols-1 gap-6">
+
+      <!-- ==================== SENDER PANEL (교무실 PC) ==================== -->
+      <section id="panel-sender" class="space-y-5">
+        <!-- Connection Status Bar -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div id="sender-status-dot" class="w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-amber-100"></div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="font-bold text-slate-800 text-base">교무실 송출 콘솔</h2>
+                <span id="sender-conn-badge" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  방송실 연결 확인 중...
+                </span>
+              </div>
+              <p id="sender-conn-desc" class="text-xs text-slate-500 mt-0.5">방송실 PC가 같은 채널 코드로 대기 중이면 즉시 실시간 송출됩니다.</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="reconnectNetwork()" class="px-3 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center gap-1.5 transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>연결 새로고침</span>
+            </button>
+            <button onclick="requestRemoteStop(null)" id="btn-sender-emergency-stop"
+              class="px-3.5 py-2 text-xs font-bold bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600 rounded-xl flex items-center gap-1.5 transition">
+              <i data-lucide="octagon-alert" class="w-3.5 h-3.5"></i>
+              <span>방송 긴급 중단</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Remote Broadcast Control Banner (Shown when broadcasting or queued) -->
+        <div id="sender-live-banner" class="hidden bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div class="flex items-start gap-3 min-w-0 flex-1">
+            <span class="w-3 h-3 rounded-full bg-rose-600 animate-ping mt-1.5 shrink-0"></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-extrabold text-rose-700 uppercase tracking-wide">ON AIR • 현재 방송실 송출 진행 중</span>
+                <span id="sender-live-dept" class="text-xs font-bold text-slate-700"></span>
+              </div>
+              <p id="sender-live-text" class="text-xs sm:text-sm text-slate-800 font-medium truncate mt-0.5"></p>
+            </div>
+          </div>
+          <button type="button" onclick="requestRemoteStop(null)"
+            class="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white shadow-md shadow-rose-600/25 flex items-center justify-center gap-2 transition shrink-0">
+            <i data-lucide="square" class="w-4 h-4 fill-current"></i>
+            <span>방송 즉시 중단</span>
+          </button>
+        </div>
+
+        <!-- Quick Templates -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-600"></i>
+              <span>자주 쓰는 학교 방송 템플릿</span>
+            </h3>
+            <span class="text-xs text-slate-400">클릭 시 멘트 자동 입력</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="template-buttons">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Broadcast Message Composer -->
+        <div class="bg-white rounded-2xl p-4 sm:p-6 shadow-sm border border-slate-200 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              <i data-lucide="mic" class="w-5 h-5 text-indigo-600"></i>
+              <span>방송 멘트 작성</span>
+            </h3>
+            <!-- Department / Sender Name -->
+            <div class="flex items-center gap-2">
+              <label for="sender-dept" class="text-xs font-medium text-slate-500">송출 부서:</label>
+              <input id="sender-dept" type="text" value="교무기획부" placeholder="예: 교무실, 3학년부"
+                class="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 w-32 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+
+          <!-- Textarea -->
+          <div class="relative">
+            <textarea id="broadcast-text" rows="5"
+              placeholder="방송할 내용을 입력하세요. (예: 안내 말씀 드립니다. 잠시 후 13시 20분부터 본교 강당에서 전교생 안전 교육이 실시될 예정입니다. 각 학급 학생들은 담임 선생님의 인솔하에 질서 있게 이동해 주시기 바랍니다.)"
+              class="w-full rounded-xl border border-slate-300 bg-slate-50/50 p-4 text-sm sm:text-base text-slate-800 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none"></textarea>
+            <div class="flex items-center justify-between mt-1.5 px-1 text-xs text-slate-400">
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="insertPhrase('아, 아, 안내 말씀 드립니다. ')" class="hover:text-indigo-600 font-medium">+ 시작 인사</button>
+                <span>•</span>
+                <button type="button" onclick="insertPhrase(' 다시 한번 안내 말씀 드립니다. ')" class="hover:text-indigo-600 font-medium">+ 반복 연결어</button>
+                <span>•</span>
+                <button type="button" onclick="insertPhrase(' 이상으로 안내 말씀을 마치겠습니다. 감사합니다.')" class="hover:text-indigo-600 font-medium">+ 맺음말</button>
+              </div>
+              <span id="char-count">0자</span>
+            </div>
+          </div>
+
+          <!-- Audio & TTS Options Grid -->
+          <div class="pt-3 border-t border-slate-100 space-y-3">
+            <!-- Voice Selection Box -->
+            <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3.5 space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                  <i data-lucide="user-check" class="w-4 h-4 text-indigo-600"></i>
+                  <span>방송 목소리(성우) 및 톤 설정</span>
+                </span>
+                <button type="button" onclick="testSelectedVoiceSample()" id="btn-voice-sample"
+                  class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition flex items-center gap-1">
+                  <i data-lucide="volume-1" class="w-3.5 h-3.5"></i>
+                  <span>선택한 목소리 샘플 듣기</span>
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <!-- Voice Engine -->
+                <div>
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">음성 엔진</label>
+                  <select id="opt-voice-engine" onchange="toggleVoiceEngineUI()"
+                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="ai">✨ AI 아나운서 성우 (자연스러운 한국어)</option>
+                    <option value="browser">💻 PC 내장 기본 음성 (오프라인 가능)</option>
+                  </select>
+                </div>
+
+                <!-- AI Voice Character (Visible when engine === 'ai') -->
+                <div id="ai-voice-group">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">AI 성우 선택 (남성 / 여성)</label>
+                  <select id="opt-ai-voice"
+                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <optgroup label="👨 남성 성우 (Male)">
+                      <option value="Charon">👨 [남성] Charon — 차분하고 신뢰감 있는 중저음 아나운서</option>
+                      <option value="Orus">👨 [남성] Orus — 단정하고 또렷한 표준 교내 방송</option>
+                      <option value="Achird">👨 [남성] Achird — 따뜻하고 친근한 선생님 목소리</option>
+                      <option value="Iapetus">👨 [남성] Iapetus — 깔끔하고 명료한 안내 목소리</option>
+                      <option value="Fenrir">👨 [남성] Fenrir — 힘차고 활기찬 체육/행사 톤</option>
+                      <option value="Puck">👨 [남성] Puck — 밝고 경쾌한 학생/동아리 안내</option>
+                    </optgroup>
+                    <optgroup label="👩 여성 성우 (Female)">
+                      <option value="Kore" selected>👩 [여성] Kore — 또렷하고 단정한 표준 아나운서</option>
+                      <option value="Aoede">👩 [여성] Aoede — 밝고 경쾌한 안내 방송</option>
+                      <option value="Sulafat">👩 [여성] Sulafat — 따뜻하고 다정한 선생님 목소리</option>
+                      <option value="Gacrux">👩 [여성] Gacrux — 차분하고 성숙한 교직원 안내</option>
+                      <option value="Leda">👩 [여성] Leda — 맑고 젊은 학생회 방송</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <!-- AI Speech Style (Visible when engine === 'ai') -->
+                <div id="ai-style-group">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">낭독 분위기</label>
+                  <select id="opt-ai-style"
+                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="정중하고 또렷한 학교 아나운서 톤으로 읽어주세요">표준 아나운서 톤</option>
+                    <option value="밝고 친절하며 따뜻한 목소리로 읽어주세요">밝고 친절한 안내</option>
+                    <option value="차분하고 신뢰감 있는 목소리로 읽어주세요">차분하고 진중한 안내</option>
+                    <option value="긴급하고 단호하며 또렷하게 읽어주세요">긴급 / 주의 당부</option>
+                  </select>
+                </div>
+
+                <!-- Browser Built-in Voice Selector (Visible when engine === 'browser') -->
+                <div id="browser-voice-group" class="sm:col-span-2 hidden">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">PC 설치 음성 선택</label>
+                  <select id="sender-browser-voice-select"
+                    class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">한국어 최적 음성 (자동 선택)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chime, Repeat, Rate, Pitch -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <!-- Chime Type -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">시작/종료 차임벨</label>
+                <select id="opt-chime" class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="standard">🔔 기본 4음 차임벨 (도-미-솔-도)</option>
+                  <option value="westminster">🎶 부드러운 교내 차임벨</option>
+                  <option value="alert">🚨 긴급/주의 알림음</option>
+                  <option value="none">🔇 차임벨 없이 바로 멘트</option>
+                </select>
+              </div>
+
+              <!-- Repeat Count -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">멘트 반복 횟수</label>
+                <select id="opt-repeat" class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="1">1회 방송</option>
+                  <option value="2">2회 연속 방송 (중요 안내)</option>
+                </select>
+              </div>
+
+              <!-- Speech Rate -->
+              <div>
+                <div class="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+                  <span>낭독 속도 <span class="text-[10px] font-normal text-slate-400">(PC음성)</span></span>
+                  <span id="rate-label" class="font-mono text-indigo-600">0.95x</span>
+                </div>
+                <input id="opt-rate" type="range" min="0.7" max="1.3" step="0.05" value="0.95"
+                  oninput="document.getElementById('rate-label').textContent = parseFloat(this.value).toFixed(2) + 'x'"
+                  class="w-full accent-indigo-600 cursor-pointer mt-1.5" />
+              </div>
+
+              <!-- Speech Pitch -->
+              <div>
+                <div class="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+                  <span>목소리 톤 <span class="text-[10px] font-normal text-slate-400">(PC음성)</span></span>
+                  <span id="pitch-label" class="font-mono text-indigo-600">1.00</span>
+                </div>
+                <input id="opt-pitch" type="range" min="0.8" max="1.2" step="0.05" value="1.0"
+                  oninput="document.getElementById('pitch-label').textContent = parseFloat(this.value).toFixed(2)"
+                  class="w-full accent-indigo-600 cursor-pointer mt-1.5" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-end gap-2.5 pt-3">
+            <button type="button" onclick="clearBroadcastText()"
+              class="px-4 py-3 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition flex items-center justify-center gap-1.5">
+              <i data-lucide="eraser" class="w-4 h-4"></i>
+              <span>내용 지우기</span>
+            </button>
+
+            <button type="button" onclick="previewLocalBroadcast()"
+              class="px-4 py-3 rounded-xl text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition flex items-center justify-center gap-2">
+              <i data-lucide="headphones" class="w-4 h-4"></i>
+              <span>내 PC 미리듣기</span>
+            </button>
+
+            <button type="button" onclick="openScheduleModalFromComposer()"
+              class="px-4 py-3 rounded-xl text-sm font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition flex items-center justify-center gap-2">
+              <i data-lucide="clock" class="w-4 h-4 text-amber-600"></i>
+              <span>예약 방송 등록</span>
+            </button>
+
+            <button type="button" onclick="sendBroadcast()" id="btn-send-broadcast"
+              class="px-6 py-3 rounded-xl text-sm sm:text-base font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] shadow-md shadow-indigo-200 transition flex items-center justify-center gap-2">
+              <i data-lucide="radio" class="w-5 h-5"></i>
+              <span>즉시 교내 방송 송출</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scheduled Broadcasts Management Card -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
+                <i data-lucide="calendar-clock" class="w-4 h-4 text-amber-600"></i>
+                <span>예약 방송 관리 (자동 송출)</span>
+              </h3>
+              <span id="schedule-count-badge" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                0건 예약됨
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="text-xs font-mono bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="live-system-clock">--:--:--</span>
+              </div>
+              <button type="button" onclick="openNewScheduleModal()"
+                class="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition flex items-center gap-1">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                <span>새 예약 추가</span>
+              </button>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-500">
+            지정된 시각이 되면 방송실 음향 시스템으로 자동 송출됩니다. 등록된 예약은 언제든 <strong>수정</strong>하거나 <strong>삭제</strong>할 수 있습니다.
+          </p>
+
+          <div id="scheduled-broadcast-list" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+            <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              등록된 예약 방송이 없습니다. 위 멘트를 작성한 뒤 <strong>[예약 방송 등록]</strong>을 눌러보세요.
+            </div>
+          </div>
+        </div>
+
+        <!-- Sent Broadcast History -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+              <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
+              <span>오늘의 방송 송출 기록</span>
+            </h3>
+            <button onclick="clearHistory()" class="text-xs text-slate-400 hover:text-red-500 transition">기록 비우기</button>
+          </div>
+          <div id="sender-history-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              아직 송출된 방송 기록이 없습니다.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== RECEIVER PANEL (방송실 음향 PC) ==================== -->
+      <section id="panel-receiver" class="space-y-5">
+        <!-- Main Receiver Console Card -->
+        <div class="bg-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-lg border border-slate-800 relative overflow-hidden">
+          <!-- Subtle Decorative Glow -->
+          <div id="receiver-glow" class="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none transition-colors duration-500"></div>
+
+          <!-- Top Status Row -->
+          <div class="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-800">
+            <div class="flex items-center gap-3">
+              <div id="on-air-badge" class="px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-2 transition-all">
+                <span id="on-air-dot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                <span id="on-air-text">STANDBY</span>
+              </div>
+              <div>
+                <h2 class="font-bold text-base sm:text-lg">방송실 음향 출력 시스템</h2>
+                <p class="text-xs text-slate-400">수신 채널: <span id="receiver-channel-display" class="font-mono text-amber-400 font-bold">SCHOOL-101</span></p>
+              </div>
+            </div>
+
+            <!-- Audio Unlock / Activation Button -->
+            <div class="flex items-center gap-2">
+              <button id="btn-activate-audio" onclick="activateReceiverAudio()"
+                class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950 shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition">
+                <i data-lucide="volume-2" class="w-4 h-4"></i>
+                <span>음향 시스템 대기 시작</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Audio Activation Warning Banner (Shown until clicked) -->
+          <div id="audio-lock-notice" class="mt-4 bg-amber-500/15 border border-amber-500/40 rounded-xl p-3.5 flex items-start gap-3">
+            <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+            <div class="text-xs text-amber-100 leading-relaxed">
+              <strong class="text-amber-300 block mb-0.5">브라우저 음성 자동재생 허용 필요</strong>
+              방송실 PC에서는 우측 상단의 <strong>[음향 시스템 대기 시작]</strong> 버튼을 한 번 눌러주셔야 교무실에서 보낸 방송 소리가 스피커로 즉시 출력됩니다. (화면 꺼짐 방지 기능도 함께 켜집니다.)
+            </div>
+          </div>
+
+          <!-- Live Broadcast Display / Teleprompter -->
+          <div class="mt-5 bg-slate-950/80 rounded-2xl p-5 sm:p-6 border border-slate-800/90 min-h-[210px] flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs text-slate-400 mb-3">
+              <span id="now-playing-dept" class="font-semibold text-indigo-400">수신 대기 중...</span>
+              <!-- Equalizer Visualizer -->
+              <div id="visualizer-bars" class="flex items-end gap-1 h-5 opacity-30 transition-opacity">
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+                <div class="w-1 bg-rose-500 rounded-full eq-bar"></div>
+              </div>
+            </div>
+
+            <div id="now-playing-text" class="text-base sm:text-xl font-medium text-slate-300 leading-relaxed my-auto break-keep">
+              교무실 PC에서 방송을 송출하면 이곳에 방송 자막이 표시되고 음향 시스템으로 음성 안내가 시작됩니다.
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-4 mt-4 border-t border-slate-800/80 text-xs text-slate-400">
+              <div class="flex items-center gap-2">
+                <span>기본 예비 음성:</span>
+                <select id="receiver-voice-select" class="bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none">
+                  <option value="">한국어 기본 음성 (자동)</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="testReceiverSpeaker()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition flex items-center gap-1.5">
+                  <i data-lucide="bell-ring" class="w-3.5 h-3.5 text-amber-400"></i>
+                  <span>앰프/스피커 테스트</span>
+                </button>
+                <button onclick="emergencyStopBroadcast(false)" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 transition flex items-center gap-1.5">
+                  <i data-lucide="square" class="w-3.5 h-3.5"></i>
+                  <span>방송 즉시 중지</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Broadcast Queue Section -->
+          <div class="mt-5">
+            <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+              <span class="font-semibold flex items-center gap-1.5">
+                <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-400"></i>
+                <span>방송 대기열 (순차 자동 송출)</span>
+              </span>
+              <span id="queue-count-badge" class="bg-slate-800 px-2 py-0.5 rounded-full font-mono">0건 대기</span>
+            </div>
+            <div id="receiver-queue-list" class="space-y-2 max-h-40 overflow-y-auto">
+              <div class="text-xs text-slate-500 bg-slate-950/50 border border-slate-800/70 rounded-xl p-3 text-center">
+                대기 중인 예약/중복 방송이 없습니다.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hardware & System Connection Tip Card -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-2">
+            <i data-lucide="cable" class="w-4 h-4 text-indigo-600"></i>
+            <span>학교 음향 시스템(앰프) 연동 가이드</span>
+          </h3>
+          <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed list-disc pl-4">
+            <li>방송실 PC의 <strong>오디오 출력(AUX/LINE OUT 또는 USB 오디오 인터페이스)</strong> 케이블이 학교 메인 방송 앰프 입력단자에 연결되어 있는지 확인하세요.</li>
+            <li>원격 방송 시 방송실 앰프의 해당 채널 볼륨이 켜져 있어야 교실 스피커로 송출됩니다. (자동 릴레이 제어기가 없는 경우 앰프 전원을 상시 대기 모드로 유지하세요.)</li>
+            <li>동일한 네트워크나 외부 인터넷 환경 모두에서 <strong>학교 채널 코드</strong>만 일치하면 실시간으로 작동합니다.</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Channel Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-indigo-600"></i>
+          <span>학교 방송 채널 및 배포 설정</span>
+        </h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-600 leading-relaxed">
+        교무실 PC와 방송실 PC가 서로 통신하기 위한 고유 식별 코드입니다. 우리 학교만의 영문/숫자 조합 코드를 입력하세요.
+      </p>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-700 mb-1.5">학교 고유 채널 코드</label>
+        <input id="modal-channel-input" type="text" placeholder="예: HANGUK-HIGH-01"
+          class="w-full font-mono uppercase text-sm border border-slate-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <p class="text-[11px] text-slate-400 mt-1">영문 대소문자, 숫자, 하이픈(-) 사용 가능 (공백 자동 제거)</p>
+      </div>
+
+      <!-- Direct Deployment Bookmark Links -->
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+        <span class="block text-xs font-bold text-slate-700">PC별 전용 접속 링크 복사 (배포 후 즐겨찾기용)</span>
+        <p class="text-[11px] text-slate-500 leading-relaxed">
+          웹 호스팅 배포 후 아래 링크를 각 PC 브라우저에 즐겨찾기해 두면 해당 화면과 채널로 즉시 열립니다.
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+          <button type="button" onclick="copyDeployUrl('sender')"
+            class="px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>교무실 PC(송출) 링크 복사</span>
+          </button>
+          <button type="button" onclick="copyDeployUrl('receiver')"
+            class="px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>방송실 PC(수신) 링크 복사</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Optional API Key for External Static Hosting -->
+      <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5 space-y-1.5">
+        <label for="modal-apikey-input" class="block text-xs font-bold text-indigo-950">
+          AI 성우 음성용 Gemini API 키 <span class="font-normal text-slate-500">(외부 호스팅 배포 시 선택사항)</span>
+        </label>
+        <input id="modal-apikey-input" type="password" placeholder="AIza... (미입력 시 PC 내장 한국어 음성으로 자동 작동)"
+          class="w-full font-mono text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <p class="text-[11px] text-slate-500 leading-relaxed">
+          API 키가 없어도 <strong>PC 내장 기본 음성</strong>으로 모든 방송 기능이 무료로 정상 작동합니다.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="closeSettingsModal()" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200">취소</button>
+        <button onclick="saveChannelSettings()" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700">저장 및 연결</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schedule Create / Edit Modal -->
+  <div id="schedule-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-2xl max-w-xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 id="schedule-modal-title" class="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+          <span>새 예약 방송 등록</span>
+        </h3>
+        <button type="button" onclick="closeScheduleModal()" class="text-slate-400 hover:text-slate-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3.5">
+        <!-- Date, Time & Recurrence -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-amber-50/70 p-3.5 rounded-xl border border-amber-200/80">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">예약 날짜</label>
+            <input id="sched-date" type="date"
+              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">방송 시각</label>
+            <input id="sched-time" type="time"
+              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">반복 주기</label>
+            <select id="sched-recurrence"
+              class="w-full text-xs sm:text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="once">1회만 방송</option>
+              <option value="weekdays">매주 평일 (월~금)</option>
+              <option value="daily">매일 반복</option>
+            </select>
+          </div>
+          <div class="sm:col-span-3 flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span class="text-[11px] font-medium text-slate-500 mr-1">빠른 시간 설정:</span>
+            <button type="button" onclick="adjustModalTime(1)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+1분 후</button>
+            <button type="button" onclick="adjustModalTime(5)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+5분 후</button>
+            <button type="button" onclick="adjustModalTime(10)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+10분 후</button>
+            <button type="button" onclick="adjustModalTime(30)" class="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition">+30분 후</button>
+          </div>
+        </div>
+
+        <!-- Department & Chime & Repeat -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">송출 부서</label>
+            <input id="sched-dept" type="text" placeholder="예: 교무기획부"
+              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">차임벨</label>
+            <select id="sched-chime"
+              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="standard">🔔 기본 4음 차임벨</option>
+              <option value="westminster">🎶 부드러운 교내 차임벨</option>
+              <option value="alert">🚨 긴급/주의 알림음</option>
+              <option value="none">🔇 차임벨 없음</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">반복 횟수</label>
+            <select id="sched-repeat"
+              class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="1">1회 방송</option>
+              <option value="2">2회 연속 방송</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Voice Selection inside Modal -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">방송 목소리 (성우)</label>
+            <select id="sched-voice"
+              class="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <optgroup label="👨 남성 성우 (Male)">
+                <option value="ai:Charon">👨 [남성] Charon — 차분한 중저음 아나운서</option>
+                <option value="ai:Orus">👨 [남성] Orus — 단정한 표준 교내 방송</option>
+                <option value="ai:Achird">👨 [남성] Achird — 친근한 선생님 목소리</option>
+                <option value="ai:Iapetus">👨 [남성] Iapetus — 깔끔한 안내 목소리</option>
+                <option value="ai:Fenrir">👨 [남성] Fenrir — 힘찬 체육/행사 톤</option>
+                <option value="ai:Puck">👨 [남성] Puck — 밝고 경쾌한 안내</option>
+              </optgroup>
+              <optgroup label="👩 여성 성우 (Female)">
+                <option value="ai:Kore">👩 [여성] Kore — 단정한 표준 아나운서</option>
+                <option value="ai:Aoede">👩 [여성] Aoede — 밝고 경쾌한 안내</option>
+                <option value="ai:Sulafat">👩 [여성] Sulafat — 다정한 선생님 목소리</option>
+                <option value="ai:Gacrux">👩 [여성] Gacrux — 차분한 교직원 안내</option>
+                <option value="ai:Leda">👩 [여성] Leda — 맑은 학생회 방송</option>
+              </optgroup>
+              <optgroup label="💻 PC 내장 기본 음성">
+                <option value="browser:">💻 PC 기본 음성 (자동 선택)</option>
+                <option value="browser:__virtual_male__">👨 [남성 톤 변환] PC 기본 음성</option>
+              </optgroup>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">낭독 분위기</label>
+            <select id="sched-style"
+              class="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="정중하고 또렷한 학교 아나운서 톤으로 읽어주세요">표준 아나운서 톤</option>
+              <option value="밝고 친절하며 따뜻한 목소리로 읽어주세요">밝고 친절한 안내</option>
+              <option value="차분하고 신뢰감 있는 목소리로 읽어주세요">차분하고 진중한 안내</option>
+              <option value="긴급하고 단호하며 또렷하게 읽어주세요">긴급 / 주의 당부</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Scheduled Broadcast Text -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">예약 방송 멘트</label>
+          <textarea id="sched-text" rows="4"
+            placeholder="예약된 시각에 송출될 방송 멘트를 입력하세요."
+            class="w-full rounded-xl border border-slate-300 bg-slate-50/50 p-3 text-sm text-slate-800 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+        <button type="button" onclick="closeScheduleModal()"
+          class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">
+          취소
+        </button>
+        <button type="button" onclick="saveScheduleModal()" id="btn-save-schedule"
+          class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm transition flex items-center gap-1.5">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>예약 저장하기</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <script>
+    /**
+     * ============================================================================
+     * SMART SCHOOL PA SYSTEM (스마트 교내 방송 시스템) - Full Production Build
+     * ----------------------------------------------------------------------------
+     * Module Structure:
+     *  1. CONFIG & STATE          : Central application state & preset templates
+     *  2. STORAGE & PWA           : Safe localStorage persistence, URL params, Manifest
+     *  3. UI & NAVIGATION         : View modes, templates, settings modal
+     *  4. VOICE & TTS ENGINE      : Gemini AI TTS + Web Speech API dual engine
+     *  5. CHIME SYNTHESIZER       : Tone.js bell synthesis & audio unlock
+     *  6. BROADCAST & QUEUE       : Message dispatch, acknowledgment, sequential queue
+     *  7. SCHEDULER               : Scheduled broadcast CRUD & real-time clock trigger
+     *  8. NETWORKING              : WebRTC (PeerJS) + BroadcastChannel dual transport
+     *  9. UTILITIES               : Clipboard, HTML escaping, toast notifications
+     * ============================================================================
+     */
+
+    // ==================== 1. CONFIG & STATE ====================
+    const STORAGE_KEYS = {
+      CHANNEL: 'pa_channel_code',
+      API_KEY: 'pa_gemini_api_key',
+      SCHEDULES: 'pa_schedules_v1',
+      HISTORY: 'pa_history_v1',
+      VOICE_URI: 'pa_voice_uri_v1'
+    };
+
+    const MALE_AI_VOICES = ['Charon', 'Orus', 'Achird', 'Iapetus', 'Fenrir', 'Puck'];
+
+    const TEMPLATES = [
+      {
+        title: '🌅 아침 조회 안내',
+        dept: '교무기획부',
+        chime: 'standard',
+        text: '아, 아, 안내 말씀 드립니다. 곧 아침 조회가 시작됩니다. 각 학급 학생들은 자리에 바르게 앉아 조회 준비를 해주시기 바랍니다.'
+      },
+      {
+        title: '🍱 점심시간 질서 안내',
+        dept: '학생생활안전부',
+        chime: 'westminster',
+        text: '안내 말씀 드립니다. 즐거운 점심시간입니다. 급식실 이동 시 복도에서 뛰지 말고 질서를 지켜 이동해 주시기 바라며, 식사 전 반드시 손을 깨끗이 씻어 주시기 바랍니다.'
+      },
+      {
+        title: '🏠 정규 수업 종료 및 하교',
+        dept: '교무기획부',
+        chime: 'standard',
+        text: '안내 말씀 드립니다. 오늘 일과가 모두 끝났습니다. 교실 정리정돈과 창문 단속을 철저히 한 후 안전하게 하교하시기 바랍니다. 이상으로 안내 말씀을 마치겠습니다.'
+      },
+      {
+        title: '☔ 우천 시 안전 하교',
+        dept: '학생생활안전부',
+        chime: 'westminster',
+        text: '학생 여러분께 안내 말씀 드립니다. 현재 비가 내리고 있습니다. 하교 시 빗길 미끄럼 사고와 차량 통행에 각별히 주의하시고, 우산을 쓰지 않은 학생은 행정실 및 교무실에서 양심 우산을 대여해 가시기 바랍니다.'
+      },
+      {
+        title: '👩‍🏫 교직원 회의 안내',
+        dept: '교무기획부',
+        chime: 'standard',
+        text: '선생님들께 안내 말씀 드립니다. 잠시 후 오후 4시 10분부터 본관 2층 교무회의실에서 전체 교직원 회의가 진행될 예정입니다. 선생님들께서는 회의실로 참석해 주시기 바랍니다.'
+      },
+      {
+        title: '🚨 긴급 대피 훈련',
+        dept: '안전총괄부',
+        chime: 'alert',
+        text: '긴급 안내 말씀 드립니다. 현재 지진 및 화재 대피 훈련이 발령되었습니다. 학생과 교직원 여러분께서는 안내에 따라 책상 아래로 몸을 보호한 후, 유도 요원의 지시에 따라 운동장으로 신속히 대피해 주시기 바랍니다.'
+      }
+    ];
+
+    const state = {
+      mode: 'split', // 'sender' | 'receiver' | 'split'
+      channelCode: 'SCHOOL-101',
+      customApiKey: '',
+      receiverAudioActivated: false,
+      isBroadcasting: false,
+      currentBroadcastId: null,
+      broadcastSessionId: 0,
+      currentAudio: null,
+      activeSynth: null,
+      activeChimeTimer: null,
+      queue: [],
+      history: [],
+      schedules: [],
+      editingScheduleId: null,
+      pendingDeleteScheduleId: null,
+      clockTimer: null,
+      pingTimer: null,
+      voices: [],
+      selectedVoiceURI: '',
+      wakeLock: null,
+      receiverPeer: null,
+      activeRxConnections: new Set(),
+      senderPeer: null,
+      senderConn: null,
+      localChannel: null,
+      receiverOnline: false
+    };
+
+    // ==================== 2. STORAGE & PWA ====================
+    function loadSavedSettings() {
+      try {
+        const savedChannel = localStorage.getItem(STORAGE_KEYS.CHANNEL);
+        if (savedChannel) state.channelCode = savedChannel;
+
+        const savedKey = localStorage.getItem(STORAGE_KEYS.API_KEY);
+        if (savedKey) state.customApiKey = savedKey;
+
+        const savedSchedules = localStorage.getItem(STORAGE_KEYS.SCHEDULES);
+        if (savedSchedules) {
+          const parsed = JSON.parse(savedSchedules);
+          if (Array.isArray(parsed)) state.schedules = parsed;
+        }
+
+        const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+        if (savedHistory) {
+          const parsedHist = JSON.parse(savedHistory);
+          if (Array.isArray(parsedHist)) state.history = parsedHist;
+        }
+      } catch (e) {}
+    }
+
+    function persistSchedules() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.SCHEDULES, JSON.stringify(state.schedules));
+      } catch (e) {}
+    }
+
+    function persistHistory() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(state.history.slice(0, 40)));
+      } catch (e) {}
+    }
+
+    function applyUrlQueryOverrides() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const paramChannel = params.get('channel');
+        const paramMode = params.get('mode');
+
+        if (paramChannel) {
+          const cleaned = paramChannel.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+          if (cleaned) {
+            state.channelCode = cleaned;
+            try { localStorage.setItem(STORAGE_KEYS.CHANNEL, cleaned); } catch (e) {}
+          }
+        }
+        if (paramMode && ['sender', 'receiver', 'split'].includes(paramMode)) {
+          state.mode = paramMode;
+        }
+      } catch (e) {}
+    }
+
+    function registerDynamicManifest() {
+      try {
+        const manifest = {
+          name: '스마트 교내 방송 시스템 (Smart School PA)',
+          short_name: '스마트 교내방송',
+          start_url: window.location.href,
+          display: 'standalone',
+          background_color: '#0f172a',
+          theme_color: '#0f172a',
+          icons: [
+            {
+              src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='48' fill='%234f46e5'/%3E%3Ccircle cx='96' cy='96' r='24' fill='white'/%3E%3Cpath d='M60 60a51 51 0 0 0 0 72M132 60a51 51 0 0 1 0 72M39 39a81 81 0 0 0 0 114M153 39a81 81 0 0 1 0 114' stroke='white' stroke-width='12' stroke-linecap='round' fill='none'/%3E%3C/svg%3E",
+              sizes: '192x192',
+              type: 'image/svg+xml'
+            }
+          ]
+        };
+        const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = URL.createObjectURL(blob);
+        document.head.appendChild(link);
+      } catch (e) {}
+    }
+
+    // ==================== 3. UI & NAVIGATION ====================
+    function switchMode(mode) {
+      state.mode = mode;
+
+      ['sender', 'receiver', 'split'].forEach((m) => {
+        const tab = document.getElementById(`tab-${m}`);
+        if (!tab) return;
+        if (m === mode) {
+          tab.className = 'mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all whitespace-nowrap';
+        } else {
+          tab.className = 'mode-tab flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700/60 transition-all whitespace-nowrap';
+        }
+      });
+
+      const grid = document.getElementById('workspace-grid');
+      const senderPanel = document.getElementById('panel-sender');
+      const receiverPanel = document.getElementById('panel-receiver');
+
+      if (mode === 'sender') {
+        grid.className = 'grid grid-cols-1 max-w-4xl mx-auto gap-6';
+        senderPanel.classList.remove('hidden');
+        receiverPanel.classList.add('hidden');
+      } else if (mode === 'receiver') {
+        grid.className = 'grid grid-cols-1 max-w-4xl mx-auto gap-6';
+        senderPanel.classList.add('hidden');
+        receiverPanel.classList.remove('hidden');
+      } else {
+        grid.className = 'grid grid-cols-1 lg:grid-cols-2 gap-6';
+        senderPanel.classList.remove('hidden');
+        receiverPanel.classList.remove('hidden');
+      }
+    }
+
+    function renderTemplates() {
+      const container = document.getElementById('template-buttons');
+      if (!container) return;
+      container.innerHTML = TEMPLATES.map((tpl, idx) => `
+        <button type="button" onclick="applyTemplate(${idx})"
+          class="text-left px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 transition group">
+          <div class="text-xs font-bold text-slate-700 group-hover:text-indigo-700 truncate">${escapeHtml(tpl.title)}</div>
+          <div class="text-[11px] text-slate-400 truncate mt-0.5">${escapeHtml(tpl.dept)}</div>
+        </button>
+      `).join('');
+    }
+
+    function applyTemplate(idx) {
+      const tpl = TEMPLATES[idx];
+      if (!tpl) return;
+      const textArea = document.getElementById('broadcast-text');
+      const deptInput = document.getElementById('sender-dept');
+      const chimeSelect = document.getElementById('opt-chime');
+
+      if (textArea) textArea.value = tpl.text;
+      if (deptInput) deptInput.value = tpl.dept;
+      if (chimeSelect) chimeSelect.value = tpl.chime;
+      updateCharCount();
+      showToast(`'${tpl.title}' 템플릿이 입력되었습니다.`, 'info');
+    }
+
+    function insertPhrase(phrase) {
+      const textArea = document.getElementById('broadcast-text');
+      if (!textArea) return;
+      const start = textArea.selectionStart || textArea.value.length;
+      const end = textArea.selectionEnd || textArea.value.length;
+      const before = textArea.value.substring(0, start);
+      const after = textArea.value.substring(end);
+      textArea.value = before + phrase + after;
+      textArea.focus();
+      const cursor = start + phrase.length;
+      textArea.setSelectionRange(cursor, cursor);
+      updateCharCount();
+    }
+
+    function updateCharCount() {
+      const textArea = document.getElementById('broadcast-text');
+      const counter = document.getElementById('char-count');
+      if (textArea && counter) {
+        counter.textContent = `${textArea.value.length}자`;
+      }
+    }
+
+    function clearBroadcastText() {
+      const textArea = document.getElementById('broadcast-text');
+      if (textArea) {
+        textArea.value = '';
+        textArea.focus();
+        updateCharCount();
+      }
+    }
+
+    function toggleVoiceEngineUI() {
+      const engine = document.getElementById('opt-voice-engine').value;
+      const aiVoiceGroup = document.getElementById('ai-voice-group');
+      const aiStyleGroup = document.getElementById('ai-style-group');
+      const browserVoiceGroup = document.getElementById('browser-voice-group');
+
+      if (engine === 'ai') {
+        aiVoiceGroup.classList.remove('hidden');
+        aiStyleGroup.classList.remove('hidden');
+        browserVoiceGroup.classList.add('hidden');
+      } else {
+        aiVoiceGroup.classList.add('hidden');
+        aiStyleGroup.classList.add('hidden');
+        browserVoiceGroup.classList.remove('hidden');
+      }
+    }
+
+    function syncChannelDisplays() {
+      const headerBadge = document.getElementById('header-channel-code');
+      const rxDisplay = document.getElementById('receiver-channel-display');
+      if (headerBadge) headerBadge.textContent = state.channelCode;
+      if (rxDisplay) rxDisplay.textContent = state.channelCode;
+    }
+
+    function openSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      const chInput = document.getElementById('modal-channel-input');
+      const keyInput = document.getElementById('modal-apikey-input');
+      if (chInput) chInput.value = state.channelCode;
+      if (keyInput) keyInput.value = state.customApiKey || '';
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function saveChannelSettings() {
+      const chInput = document.getElementById('modal-channel-input');
+      const keyInput = document.getElementById('modal-apikey-input');
+      const rawChannel = (chInput ? chInput.value : '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+
+      if (!rawChannel) {
+        showToast('학교 채널 코드를 입력해 주세요.', 'error');
+        return;
+      }
+
+      state.channelCode = rawChannel;
+      state.customApiKey = keyInput ? keyInput.value.trim() : '';
+
+      try {
+        localStorage.setItem(STORAGE_KEYS.CHANNEL, state.channelCode);
+        localStorage.setItem(STORAGE_KEYS.API_KEY, state.customApiKey);
+      } catch (e) {}
+
+      syncChannelDisplays();
+      closeSettingsModal();
+      reconnectNetwork();
+      showToast(`학교 채널 [${state.channelCode}] 설정이 저장되었습니다.`, 'success');
+    }
+
+    function copyDeployUrl(targetMode) {
+      const chInput = document.getElementById('modal-channel-input');
+      const code = (chInput && chInput.value.trim()
+        ? chInput.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '')
+        : state.channelCode) || 'SCHOOL-101';
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('channel', code);
+      url.searchParams.set('mode', targetMode);
+
+      copyTextToClipboard(url.toString());
+      const label = targetMode === 'sender' ? '교무실 PC(송출)' : '방송실 PC(수신)';
+      showToast(`${label} 전용 접속 링크가 클립보드에 복사되었습니다.`, 'success');
+    }
+
+    // ==================== 4. VOICE & TTS ENGINE ====================
+    function loadBrowserVoices() {
+      if (!('speechSynthesis' in window)) return;
+
+      const populate = () => {
+        const allVoices = window.speechSynthesis.getVoices();
+        if (!allVoices || allVoices.length === 0) return;
+
+        state.voices = allVoices;
+        const koVoices = allVoices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
+        const displayVoices = koVoices.length > 0 ? koVoices : allVoices;
+
+        const senderSelect = document.getElementById('sender-browser-voice-select');
+        const receiverSelect = document.getElementById('receiver-voice-select');
+
+        if (senderSelect) {
+          const prevVal = senderSelect.value;
+          senderSelect.innerHTML = `
+            <option value="">한국어 최적 음성 (자동 선택)</option>
+            <option value="__virtual_male__">👨 [남성 톤 변환] PC 기본 음성 중저음 변환</option>
+            ${displayVoices.map(v => `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)} (${escapeHtml(v.lang)})</option>`).join('')}
+          `;
+          if (prevVal) senderSelect.value = prevVal;
+        }
+
+        if (receiverSelect) {
+          const prevRx = receiverSelect.value;
+          receiverSelect.innerHTML = `
+            <option value="">한국어 기본 음성 (자동)</option>
+            <option value="__virtual_male__">👨 [남성 톤 변환] PC 기본 음성</option>
+            ${displayVoices.map(v => `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)}</option>`).join('')}
+          `;
+          if (prevRx) receiverSelect.value = prevRx;
+        }
+      };
+
+      populate();
+      window.speechSynthesis.onvoiceschanged = populate;
+    }
+
+    function resolveKoreanBrowserVoice(preferredURI) {
+      if (!state.voices || state.voices.length === 0) {
+        if ('speechSynthesis' in window) {
+          state.voices = window.speechSynthesis.getVoices();
+        }
+      }
+      if (preferredURI && preferredURI !== '__virtual_male__') {
+        const exact = state.voices.find(v => v.voiceURI === preferredURI);
+        if (exact) return exact;
+      }
+      const koVoices = state.voices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
+      if (koVoices.length > 0) {
+        return koVoices.find(v => /google|natural|online|heami|sunhi|injoon/i.test(v.name)) || koVoices[0];
+      }
+      return state.voices[0] || null;
+    }
+
+    function pcm16ToWavBlob(base64Pcm, sampleRate = 24000) {
+      const binaryStr = atob(base64Pcm);
+      const pcmLength = binaryStr.length;
+      const wavBuffer = new ArrayBuffer(44 + pcmLength);
+      const view = new DataView(wavBuffer);
+
+      const writeStr = (offset, str) => {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset + i, str.charCodeAt(i));
+        }
+      };
+
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + pcmLength, true);
+      writeStr(8, 'WAVE');
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, 1, true); // Mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, 'data');
+      view.setUint32(40, pcmLength, true);
+
+      const bytes = new Uint8Array(wavBuffer, 44);
+      for (let i = 0; i < pcmLength; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      return new Blob([wavBuffer], { type: 'audio/wav' });
+    }
+
+    async function fetchGeminiTtsAudioUrl(text, voiceName = 'Kore', stylePrompt = '') {
+      const apiKey = state.customApiKey || '';
+      if (!apiKey) return null;
+
+      try {
+        const promptText = stylePrompt ? `${stylePrompt}: "${text}"` : text;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: promptText }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' }
+                }
+              }
+            }
+          })
+        });
+
+        if (!response.ok) return null;
+        const data = await response.json();
+        const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (!inlineData || !inlineData.data) return null;
+
+        const mime = inlineData.mimeType || '';
+        if (mime.includes('wav') || mime.includes('mp3') || mime.includes('ogg')) {
+          return `data:${mime};base64,${inlineData.data}`;
+        }
+        const rateMatch = mime.match(/rate=(\d+)/);
+        const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+        const wavBlob = pcm16ToWavBlob(inlineData.data, sampleRate);
+        return URL.createObjectURL(wavBlob);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function prepareSpeechPlayer(text, options = {}) {
+      const engine = options.voiceEngine || 'ai';
+      const aiVoice = options.aiVoice || 'Kore';
+      const aiStyle = options.aiStyle || '';
+      let audioUrl = null;
+
+      if (engine === 'ai') {
+        audioUrl = await fetchGeminiTtsAudioUrl(text, aiVoice, aiStyle);
+      }
+
+      if (audioUrl) {
+        return {
+          play: () => new Promise((resolve) => {
+            const audio = new Audio(audioUrl);
+            state.currentAudio = audio;
+            const finish = () => {
+              if (state.currentAudio === audio) state.currentAudio = null;
+              resolve();
+            };
+            audio.onended = finish;
+            audio.onerror = finish;
+            audio.play().catch(finish);
+          }),
+          dispose: () => {
+            if (audioUrl && audioUrl.startsWith('blob:')) {
+              try { URL.revokeObjectURL(audioUrl); } catch (e) {}
+            }
+          }
+        };
+      }
+
+      // Fallback or explicit browser Web Speech API synthesis
+      return {
+        play: () => new Promise((resolve) => {
+          if (!('speechSynthesis' in window)) {
+            resolve();
+            return;
+          }
+
+          window.speechSynthesis.cancel();
+          const rxSelect = document.getElementById('receiver-voice-select');
+          const preferredURI = options.browserVoiceURI || (rxSelect ? rxSelect.value : '');
+          const isVirtualMale = preferredURI === '__virtual_male__' ||
+            (engine === 'ai' && MALE_AI_VOICES.includes(aiVoice));
+
+          const utterance = new SpeechSynthesisUtterance(text);
+          const matchedVoice = resolveKoreanBrowserVoice(preferredURI);
+          if (matchedVoice) utterance.voice = matchedVoice;
+          utterance.lang = 'ko-KR';
+
+          const baseRate = parseFloat(options.rate) || 0.95;
+          const basePitch = parseFloat(options.pitch) || 1.0;
+
+          utterance.rate = isVirtualMale ? Math.max(0.75, baseRate * 0.96) : baseRate;
+          utterance.pitch = isVirtualMale ? Math.min(basePitch, 0.78) : basePitch;
+
+          utterance.onend = () => resolve();
+          utterance.onerror = () => resolve();
+
+          window.speechSynthesis.speak(utterance);
+        }),
+        dispose: () => {}
+      };
+    }
+
+    async function testSelectedVoiceSample() {
+      const btn = document.getElementById('btn-voice-sample');
+      if (btn) btn.disabled = true;
+
+      const engine = document.getElementById('opt-voice-engine').value;
+      const aiVoice = document.getElementById('opt-ai-voice').value;
+      const aiStyle = document.getElementById('opt-ai-style').value;
+      const browserVoiceURI = document.getElementById('sender-browser-voice-select').value;
+      const rate = parseFloat(document.getElementById('opt-rate').value) || 0.95;
+      const pitch = parseFloat(document.getElementById('opt-pitch').value) || 1.0;
+
+      const sampleText = '아, 아, 안내 말씀 드립니다. 스마트 교내 방송 시스템 목소리 테스트입니다.';
+      showToast('선택하신 목소리 샘플을 재생합니다...', 'info');
+
+      try {
+        const player = await prepareSpeechPlayer(sampleText, {
+          voiceEngine: engine,
+          aiVoice,
+          aiStyle,
+          browserVoiceURI,
+          rate,
+          pitch
+        });
+        await player.play();
+        player.dispose();
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // ==================== 5. CHIME SYNTHESIZER ====================
+    function stopActiveChime() {
+      if (state.activeChimeTimer) {
+        clearTimeout(state.activeChimeTimer);
+        state.activeChimeTimer = null;
+      }
+      if (state.activeSynth) {
+        try {
+          state.activeSynth.releaseAll();
+          state.activeSynth.dispose();
+        } catch (e) {}
+        state.activeSynth = null;
+      }
+    }
+
+    async function playChime(type = 'standard') {
+      if (type === 'none' || typeof Tone === 'undefined') return;
+      stopActiveChime();
+      try {
+        await Tone.start();
+        const synth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.03, decay: 0.35, sustain: 0.15, release: 0.6 }
+        }).toDestination();
+        state.activeSynth = synth;
+
+        const now = Tone.now();
+        let durationMs = 0;
+        if (type === 'standard') {
+          synth.triggerAttackRelease('C5', '8n', now);
+          synth.triggerAttackRelease('E5', '8n', now + 0.3);
+          synth.triggerAttackRelease('G5', '8n', now + 0.6);
+          synth.triggerAttackRelease('C6', '4n', now + 0.9);
+          durationMs = 1450;
+        } else if (type === 'westminster') {
+          synth.triggerAttackRelease('E5', '4n', now);
+          synth.triggerAttackRelease('C5', '4n', now + 0.38);
+          synth.triggerAttackRelease('D5', '4n', now + 0.76);
+          synth.triggerAttackRelease('G4', '4n', now + 1.14);
+          durationMs = 1750;
+        } else if (type === 'alert') {
+          synth.triggerAttackRelease('A5', '16n', now);
+          synth.triggerAttackRelease('E5', '16n', now + 0.18);
+          synth.triggerAttackRelease('A5', '16n', now + 0.38);
+          synth.triggerAttackRelease('E5', '16n', now + 0.56);
+          durationMs = 900;
+        }
+
+        await new Promise((resolve) => {
+          state.activeChimeTimer = setTimeout(() => {
+            state.activeChimeTimer = null;
+            resolve();
+          }, durationMs);
+        });
+
+        if (state.activeSynth === synth) {
+          synth.dispose();
+          state.activeSynth = null;
+        }
+      } catch (e) {}
+    }
+
+    async function activateReceiverAudio() {
+      try {
+        if (typeof Tone !== 'undefined') {
+          await Tone.start();
+        }
+        if ('speechSynthesis' in window) {
+          const silentUtter = new SpeechSynthesisUtterance('');
+          silentUtter.volume = 0;
+          window.speechSynthesis.speak(silentUtter);
+        }
+        if ('wakeLock' in navigator && !state.wakeLock) {
+          try {
+            state.wakeLock = await navigator.wakeLock.request('screen');
+          } catch (e) {}
+        }
+
+        state.receiverAudioActivated = true;
+        const notice = document.getElementById('audio-lock-notice');
+        const btn = document.getElementById('btn-activate-audio');
+        if (notice) notice.classList.add('hidden');
+        if (btn) {
+          btn.className = 'px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-800 text-emerald-400 border border-emerald-500/40 flex items-center gap-2 transition';
+          btn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>음향 출력 대기 중 (활성화됨)</span>`;
+          lucide.createIcons();
+        }
+        showToast('방송실 음향 시스템 출력이 활성화되었습니다.', 'success');
+      } catch (e) {
+        showToast('오디오 활성화 중 브라우저 권한을 확인해 주세요.', 'error');
+      }
+    }
+
+    async function testReceiverSpeaker() {
+      if (state.isBroadcasting) {
+        showToast('현재 방송이 진행 중입니다.', 'info');
+        return;
+      }
+      await activateReceiverAudio();
+      await playChime('standard');
+      const player = await prepareSpeechPlayer('방송실 음향 시스템 및 교내 스피커 출력 테스트 중입니다.', {
+        voiceEngine: 'browser'
+      });
+      await player.play();
+      player.dispose();
+    }
+
+    // ==================== 6. BROADCAST & QUEUE ====================
+    function collectComposerPayload() {
+      const text = (document.getElementById('broadcast-text').value || '').trim();
+      const dept = (document.getElementById('sender-dept').value || '').trim() || '교무실';
+      const chime = document.getElementById('opt-chime').value;
+      const repeat = parseInt(document.getElementById('opt-repeat').value, 10) || 1;
+      const voiceEngine = document.getElementById('opt-voice-engine').value;
+      const aiVoice = document.getElementById('opt-ai-voice').value;
+      const aiStyle = document.getElementById('opt-ai-style').value;
+      const browserVoiceURI = document.getElementById('sender-browser-voice-select').value;
+      const rate = parseFloat(document.getElementById('opt-rate').value) || 0.95;
+      const pitch = parseFloat(document.getElementById('opt-pitch').value) || 1.0;
+
+      return {
+        type: 'BROADCAST_REQUEST',
+        id: `bc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        channel: state.channelCode,
+        timestamp: new Date().toLocaleTimeString('ko-KR'),
+        dept,
+        text,
+        chime,
+        repeat,
+        voiceEngine,
+        aiVoice,
+        aiStyle,
+        browserVoiceURI,
+        rate,
+        pitch
+      };
+    }
+
+    async function previewLocalBroadcast() {
+      const payload = collectComposerPayload();
+      if (!payload.text) {
+        showToast('미리듣기할 방송 멘트를 먼저 입력해 주세요.', 'error');
+        return;
+      }
+
+      showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
+      const [, player] = await Promise.all([
+        playChime(payload.chime),
+        prepareSpeechPlayer(payload.text, payload)
+      ]);
+      await player.play();
+      player.dispose();
+    }
+
+    function sendBroadcast() {
+      const payload = collectComposerPayload();
+      if (!payload.text) {
+        showToast('송출할 방송 멘트를 입력해 주세요.', 'error');
+        document.getElementById('broadcast-text').focus();
+        return;
+      }
+      dispatchBroadcastPayload(payload, false);
+    }
+
+    function dispatchBroadcastPayload(payload, isScheduled = false) {
+      // 1. Add to sender history
+      const historyItem = {
+        ...payload,
+        dept: isScheduled ? `[예약] ${payload.dept}` : payload.dept,
+        status: '송출 요청'
+      };
+      state.history.unshift(historyItem);
+      persistHistory();
+      renderSenderHistory();
+      updateSenderLiveBanner(historyItem);
+
+      // 2. Send via PeerJS (Remote PC-to-PC)
+      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
+      if (state.senderConn && state.senderConn.open) {
+        try {
+          state.senderConn.send(payload);
+        } catch (e) {}
+      } else if (state.senderPeer && !state.senderPeer.destroyed) {
+        try {
+          const tempConn = state.senderPeer.connect(receiverPeerId, { reliable: true });
+          tempConn.on('open', () => {
+            state.senderConn = tempConn;
+            state.receiverOnline = true;
+            updateSenderConnectionUI(true, '방송실 음향 PC와 실시간 연결됨');
+            tempConn.send(payload);
+          });
+          tempConn.on('data', handleSenderIncomingData);
+        } catch (e) {}
+      }
+
+      // 3. Send via BroadcastChannel (Same PC / Multi-Tab)
+      if (state.localChannel) {
+        try {
+          state.localChannel.postMessage(payload);
+        } catch (e) {}
+      }
+
+      // 4. Execute directly if in Split mode or if this tab holds the Receiver role
+      const holdsReceiverRole = state.receiverPeer && !state.receiverPeer.destroyed && state.receiverPeer.open;
+      if (state.mode === 'split' || state.mode === 'receiver' || holdsReceiverRole) {
+        enqueueBroadcast(payload);
+      }
+
+      showToast(
+        isScheduled ? `예약 방송(${payload.dept})이 자동 송출되었습니다.` : '교내 방송이 송출되었습니다.',
+        'success'
+      );
+    }
+
+    function requestRemoteStop(targetId = null) {
+      const stopPacket = {
+        type: 'STOP_BROADCAST',
+        channel: state.channelCode,
+        targetId: targetId,
+        timestamp: new Date().toLocaleTimeString('ko-KR')
+      };
+
+      // 1. Send stop signal over PeerJS
+      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
+      if (state.senderConn && state.senderConn.open) {
+        try {
+          state.senderConn.send(stopPacket);
+        } catch (e) {}
+      } else if (state.senderPeer && !state.senderPeer.destroyed) {
+        try {
+          const tempConn = state.senderPeer.connect(receiverPeerId, { reliable: true });
+          tempConn.on('open', () => {
+            state.senderConn = tempConn;
+            tempConn.send(stopPacket);
+          });
+          tempConn.on('data', handleSenderIncomingData);
+        } catch (e) {}
+      }
+
+      // 2. Send stop signal over BroadcastChannel
+      if (state.localChannel) {
+        try {
+          state.localChannel.postMessage(stopPacket);
+        } catch (e) {}
+      }
+
+      // 3. Update local history statuses immediately
+      const activeStatuses = ['송출 요청', '방송실 수신 완료', '대기열 등록', '방송 중'];
+      state.history.forEach((item) => {
+        if (targetId ? item.id === targetId : activeStatuses.includes(item.status)) {
+          item.status = '강제 중단됨';
+        }
+      });
+      persistHistory();
+      renderSenderHistory();
+
+      // 4. Execute local/receiver stop if in Split/Receiver mode or holding Receiver peer
+      const holdsReceiverRole = state.receiverPeer && !state.receiverPeer.destroyed && state.receiverPeer.open;
+      if (state.mode === 'split' || state.mode === 'receiver' || holdsReceiverRole) {
+        handleStopBroadcastCommand(stopPacket, false);
+      } else {
+        showToast(
+          targetId ? '선택한 방송의 중단 요청을 방송실로 전송했습니다.' : '방송실에 즉시 중단 신호를 전송했습니다.',
+          'error'
+        );
+      }
+
+      refreshSenderLiveBannerFromHistory();
+    }
+
+    function updateSenderLiveBanner(activeItem) {
+      const banner = document.getElementById('sender-live-banner');
+      const deptEl = document.getElementById('sender-live-dept');
+      const textEl = document.getElementById('sender-live-text');
+      const topStopBtn = document.getElementById('btn-sender-emergency-stop');
+      if (!banner) return;
+
+      if (activeItem) {
+        banner.classList.remove('hidden');
+        if (deptEl) deptEl.textContent = `[${activeItem.dept}]`;
+        if (textEl) textEl.textContent = activeItem.text;
+        if (topStopBtn) {
+          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white border border-rose-600 rounded-xl flex items-center gap-1.5 shadow-sm animate-pulse transition';
+        }
+      } else {
+        banner.classList.add('hidden');
+        if (topStopBtn) {
+          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 hover:border-rose-600 rounded-xl flex items-center gap-1.5 transition';
+        }
+      }
+    }
+
+    function refreshSenderLiveBannerFromHistory() {
+      const activeStatuses = ['방송 중', '대기열 등록', '방송실 수신 완료', '송출 요청'];
+      const running = state.history.find((h) => activeStatuses.includes(h.status));
+      updateSenderLiveBanner(running || null);
+    }
+
+    function updateHistoryStatus(id, status) {
+      const item = state.history.find(h => h.id === id);
+      if (item) {
+        item.status = status;
+        persistHistory();
+        renderSenderHistory();
+      }
+      refreshSenderLiveBannerFromHistory();
+    }
+
+    function renderSenderHistory() {
+      const list = document.getElementById('sender-history-list');
+      if (!list) return;
+      if (state.history.length === 0) {
+        list.innerHTML = `
+          <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            아직 송출된 방송 기록이 없습니다.
+          </div>`;
+        return;
+      }
+
+      const stoppableStatuses = ['송출 요청', '방송실 수신 완료', '대기열 등록', '방송 중'];
+
+      list.innerHTML = state.history.map((item, idx) => {
+        let badgeStyle = 'bg-slate-100 text-slate-600';
+        if (item.status === '방송 중') badgeStyle = 'bg-rose-100 text-rose-700 animate-pulse';
+        else if (item.status === '송출 완료') badgeStyle = 'bg-emerald-100 text-emerald-700';
+        else if (item.status === '대기열 등록' || item.status === '방송실 수신 완료') badgeStyle = 'bg-amber-100 text-amber-700';
+        else if (item.status === '강제 중단됨' || item.status === '연결 실패') badgeStyle = 'bg-rose-100 text-rose-800';
+
+        const canStop = stoppableStatuses.includes(item.status);
+
+        return `
+          <div class="p-3 rounded-xl border ${canStop ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200 bg-slate-50/60'} hover:bg-white transition flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2 mb-1">
+                <span class="text-[11px] font-mono text-slate-400">${escapeHtml(item.timestamp)}</span>
+                <span class="text-xs font-bold text-indigo-700">${escapeHtml(item.dept)}</span>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeStyle}">${escapeHtml(item.status)}</span>
+              </div>
+              <p class="text-xs text-slate-700 line-clamp-2 leading-relaxed">${escapeHtml(item.text)}</p>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              ${canStop ? `
+                <button onclick="requestRemoteStop('${escapeHtml(item.id)}')" title="이 방송 즉시 중단"
+                  class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition flex items-center gap-1">
+                  <i data-lucide="square" class="w-3 h-3 fill-current"></i>
+                  <span>중단</span>
+                </button>
+              ` : ''}
+              <button onclick="reloadHistoryItem(${idx})" title="멘트 다시 불러오기"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-600 transition">
+                불러오기
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function reloadHistoryItem(idx) {
+      const item = state.history[idx];
+      if (!item) return;
+      document.getElementById('broadcast-text').value = item.text;
+      document.getElementById('sender-dept').value = item.dept.replace(/^\[예약\]\s*/, '');
+      if (item.chime) document.getElementById('opt-chime').value = item.chime;
+      if (item.repeat) document.getElementById('opt-repeat').value = String(item.repeat);
+      updateCharCount();
+      showToast('이전 방송 멘트를 입력창으로 불러왔습니다.', 'info');
+    }
+
+    function clearHistory() {
+      state.history = [];
+      persistHistory();
+      renderSenderHistory();
+      refreshSenderLiveBannerFromHistory();
+    }
+
+    function enqueueBroadcast(payload) {
+      if (!payload || !payload.id) return;
+      if (state.currentBroadcastId === payload.id || state.queue.some(q => q.id === payload.id)) {
+        return; // Deduplicate identical packet across dual transport
+      }
+
+      state.queue.push(payload);
+      renderReceiverQueue();
+
+      if (state.isBroadcasting) {
+        sendAckToSender(payload.id, '대기열 등록');
+      } else {
+        processNextBroadcast();
+      }
+    }
+
+    async function processNextBroadcast() {
+      if (state.isBroadcasting || state.queue.length === 0) return;
+
+      state.isBroadcasting = true;
+      state.broadcastSessionId += 1;
+      const sessionId = state.broadcastSessionId;
+
+      const current = state.queue.shift();
+      state.currentBroadcastId = current.id;
+      renderReceiverQueue();
+
+      setOnAirUI(true, current);
+      sendAckToSender(current.id, '방송 중');
+
+      if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
+        try { await Tone.start(); } catch (e) {}
+      }
+
+      const [, speechPlayer] = await Promise.all([
+        playChime(current.chime),
+        prepareSpeechPlayer(current.text, current)
+      ]);
+
+      // Abort immediately if stopped during chime or audio preparation
+      if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
+        speechPlayer.dispose();
+        return;
+      }
+
+      try {
+        for (let i = 0; i < (current.repeat || 1); i++) {
+          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
+          await speechPlayer.play();
+          if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) {
+            await new Promise(r => setTimeout(r, 900));
+          }
+        }
+      } finally {
+        speechPlayer.dispose();
+      }
+
+      if (state.isBroadcasting && state.broadcastSessionId === sessionId && current.chime !== 'none') {
+        await playChime(current.chime === 'alert' ? 'none' : 'standard');
+      }
+
+      // Only finalize normal completion if not already aborted by emergencyStopBroadcast
+      if (state.isBroadcasting && state.broadcastSessionId === sessionId) {
+        state.isBroadcasting = false;
+        state.currentBroadcastId = null;
+        setOnAirUI(false, null);
+        sendAckToSender(current.id, '송출 완료');
+
+        if (state.queue.length > 0) {
+          setTimeout(processNextBroadcast, 500);
+        }
+      }
+    }
+
+    function setOnAirUI(active, item) {
+      const badge = document.getElementById('on-air-badge');
+      const dot = document.getElementById('on-air-dot');
+      const text = document.getElementById('on-air-text');
+      const deptEl = document.getElementById('now-playing-dept');
+      const bodyEl = document.getElementById('now-playing-text');
+      const bars = document.getElementById('visualizer-bars');
+      const glow = document.getElementById('receiver-glow');
+
+      if (active && item) {
+        if (badge) badge.className = 'px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-rose-600 text-white border border-rose-500 shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-all';
+        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-white animate-ping';
+        if (text) text.textContent = 'ON AIR';
+        if (deptEl) deptEl.textContent = `송출 부서: ${item.dept} (${item.timestamp})`;
+        if (bodyEl) {
+          bodyEl.textContent = item.text;
+          bodyEl.className = 'text-base sm:text-xl font-bold text-white leading-relaxed my-auto break-keep';
+        }
+        if (bars) bars.classList.remove('opacity-30');
+        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-rose-500/25 blur-3xl pointer-events-none transition-colors duration-500';
+      } else {
+        if (badge) badge.className = 'px-3.5 py-1.5 rounded-xl font-mono font-extrabold text-sm tracking-wider bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-2 transition-all';
+        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+        if (text) text.textContent = 'STANDBY';
+        if (deptEl) deptEl.textContent = '수신 대기 중...';
+        if (bodyEl) {
+          bodyEl.textContent = '교무실 PC에서 방송을 송출하면 이곳에 방송 자막이 표시되고 음향 시스템으로 음성 안내가 시작됩니다.';
+          bodyEl.className = 'text-base sm:text-xl font-medium text-slate-300 leading-relaxed my-auto break-keep';
+        }
+        if (bars) bars.classList.add('opacity-30');
+        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none transition-colors duration-500';
+      }
+    }
+
+    function renderReceiverQueue() {
+      const list = document.getElementById('receiver-queue-list');
+      const countBadge = document.getElementById('queue-count-badge');
+      if (countBadge) countBadge.textContent = `${state.queue.length}건 대기`;
+      if (!list) return;
+
+      if (state.queue.length === 0) {
+        list.innerHTML = `
+          <div class="text-xs text-slate-500 bg-slate-950/50 border border-slate-800/70 rounded-xl p-3 text-center">
+            대기 중인 예약/중복 방송이 없습니다.
+          </div>`;
+        return;
+      }
+
+      list.innerHTML = state.queue.map((q, i) => `
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs">
+          <div class="min-w-0 flex-1">
+            <span class="font-mono text-amber-400 font-bold mr-1.5">#${i + 1}</span>
+            <span class="font-semibold text-indigo-300 mr-1.5">[${escapeHtml(q.dept)}]</span>
+            <span class="text-slate-300 truncate">${escapeHtml(q.text)}</span>
+          </div>
+          <button onclick="handleStopBroadcastCommand({ targetId: '${escapeHtml(q.id)}' }, false)"
+            class="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white transition shrink-0">
+            취소
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function handleStopBroadcastCommand(data, fromRemote = true) {
+      const targetId = data ? data.targetId : null;
+
+      // If a specific queued (not yet playing) broadcast was cancelled, remove only that item
+      if (targetId && state.currentBroadcastId !== targetId) {
+        const idx = state.queue.findIndex((q) => q.id === targetId);
+        if (idx !== -1) {
+          state.queue.splice(idx, 1);
+          renderReceiverQueue();
+          sendAckToSender(targetId, '강제 중단됨');
+          showToast('대기 중이던 방송이 취소되었습니다.', 'info');
+          return;
+        }
+      }
+
+      // Otherwise stop active broadcast (and clear queue if global stop)
+      emergencyStopBroadcast(fromRemote);
+    }
+
+    function emergencyStopBroadcast(fromRemote = false) {
+      const stoppedId = state.currentBroadcastId;
+      const queuedIds = state.queue.map((q) => q.id);
+
+      state.broadcastSessionId += 1;
+      state.isBroadcasting = false;
+      state.currentBroadcastId = null;
+      state.queue = [];
+
+      stopActiveChime();
+
+      if (state.currentAudio) {
+        try {
+          state.currentAudio.pause();
+          state.currentAudio.currentTime = 0;
+        } catch (e) {}
+        state.currentAudio = null;
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      setOnAirUI(false, null);
+      renderReceiverQueue();
+
+      if (stoppedId) sendAckToSender(stoppedId, '강제 중단됨');
+      queuedIds.forEach((qid) => sendAckToSender(qid, '강제 중단됨'));
+
+      showToast(
+        fromRemote
+          ? '교무실 요청에 의해 진행 중인 방송이 즉시 중단되었습니다.'
+          : '현재 진행 중인 방송과 대기열을 모두 중지했습니다.',
+        'error'
+      );
+    }
+
+    // ==================== 7. SCHEDULER ====================
+    function formatDateYMD(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function formatTimeHM(dateObj) {
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+
+    function startLiveClock() {
+      if (state.clockTimer) clearInterval(state.clockTimer);
+
+      const tick = () => {
+        const now = new Date();
+        const clockEl = document.getElementById('live-system-clock');
+        if (clockEl) {
+          clockEl.textContent = now.toLocaleTimeString('ko-KR', { hour12: false });
+        }
+        checkAndTriggerSchedules(now);
+      };
+
+      tick();
+      state.clockTimer = setInterval(tick, 1000);
+    }
+
+    function openScheduleModalFromComposer() {
+      const composerText = (document.getElementById('broadcast-text').value || '').trim();
+      const composerDept = (document.getElementById('sender-dept').value || '').trim() || '교무기획부';
+      const composerChime = document.getElementById('opt-chime').value;
+      const composerRepeat = document.getElementById('opt-repeat').value;
+      const engine = document.getElementById('opt-voice-engine').value;
+      const aiVoice = document.getElementById('opt-ai-voice').value;
+      const browserVoice = document.getElementById('sender-browser-voice-select').value;
+      const aiStyle = document.getElementById('opt-ai-style').value;
+
+      state.editingScheduleId = null;
+      const future = new Date(Date.now() + 5 * 60 * 1000);
+
+      document.getElementById('schedule-modal-title').innerHTML = `
+        <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+        <span>새 예약 방송 등록</span>
+      `;
+      document.getElementById('sched-date').value = formatDateYMD(future);
+      document.getElementById('sched-time').value = formatTimeHM(future);
+      document.getElementById('sched-recurrence').value = 'once';
+      document.getElementById('sched-dept').value = composerDept;
+      document.getElementById('sched-chime').value = composerChime;
+      document.getElementById('sched-repeat').value = composerRepeat;
+      document.getElementById('sched-voice').value = engine === 'ai' ? `ai:${aiVoice}` : `browser:${browserVoice}`;
+      document.getElementById('sched-style').value = aiStyle;
+      document.getElementById('sched-text').value = composerText;
+
+      const modal = document.getElementById('schedule-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function openNewScheduleModal() {
+      state.editingScheduleId = null;
+      const future = new Date(Date.now() + 5 * 60 * 1000);
+
+      document.getElementById('schedule-modal-title').innerHTML = `
+        <i data-lucide="calendar-clock" class="w-5 h-5 text-amber-600"></i>
+        <span>새 예약 방송 등록</span>
+      `;
+      document.getElementById('sched-date').value = formatDateYMD(future);
+      document.getElementById('sched-time').value = formatTimeHM(future);
+      document.getElementById('sched-recurrence').value = 'once';
+      document.getElementById('sched-dept').value = (document.getElementById('sender-dept').value || '').trim() || '교무기획부';
+      document.getElementById('sched-chime').value = 'standard';
+      document.getElementById('sched-repeat').value = '1';
+      document.getElementById('sched-voice').value = 'ai:Kore';
+      document.getElementById('sched-style').value = '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
+      document.getElementById('sched-text').value = '';
+
+      const modal = document.getElementById('schedule-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function openEditScheduleModal(id) {
+      const item = state.schedules.find(s => s.id === id);
+      if (!item) return;
+
+      state.editingScheduleId = id;
+      document.getElementById('schedule-modal-title').innerHTML = `
+        <i data-lucide="edit-3" class="w-5 h-5 text-indigo-600"></i>
+        <span>예약 방송 수정</span>
+      `;
+      document.getElementById('sched-date').value = item.date;
+      document.getElementById('sched-time').value = item.time;
+      document.getElementById('sched-recurrence').value = item.recurrence || 'once';
+      document.getElementById('sched-dept').value = item.dept;
+      document.getElementById('sched-chime').value = item.chime;
+      document.getElementById('sched-repeat').value = String(item.repeat || 1);
+      document.getElementById('sched-voice').value = item.voiceCode || 'ai:Kore';
+      document.getElementById('sched-style').value = item.aiStyle || '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
+      document.getElementById('sched-text').value = item.text;
+
+      const modal = document.getElementById('schedule-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function closeScheduleModal() {
+      const modal = document.getElementById('schedule-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      state.editingScheduleId = null;
+    }
+
+    function adjustModalTime(minutesToAdd) {
+      const target = new Date(Date.now() + minutesToAdd * 60 * 1000);
+      document.getElementById('sched-date').value = formatDateYMD(target);
+      document.getElementById('sched-time').value = formatTimeHM(target);
+    }
+
+    function saveScheduleModal() {
+      const dateVal = document.getElementById('sched-date').value;
+      const timeVal = document.getElementById('sched-time').value;
+      const recurrence = document.getElementById('sched-recurrence').value;
+      const dept = (document.getElementById('sched-dept').value || '').trim() || '교무기획부';
+      const chime = document.getElementById('sched-chime').value;
+      const repeat = parseInt(document.getElementById('sched-repeat').value, 10) || 1;
+      const voiceCode = document.getElementById('sched-voice').value;
+      const aiStyle = document.getElementById('sched-style').value;
+      const text = (document.getElementById('sched-text').value || '').trim();
+
+      if (!dateVal || !timeVal) {
+        showToast('예약 날짜와 방송 시각을 모두 선택해 주세요.', 'error');
+        return;
+      }
+      if (!text) {
+        showToast('예약 방송 멘트를 입력해 주세요.', 'error');
+        document.getElementById('sched-text').focus();
+        return;
+      }
+
+      if (state.editingScheduleId) {
+        const idx = state.schedules.findIndex(s => s.id === state.editingScheduleId);
+        if (idx !== -1) {
+          state.schedules[idx] = {
+            ...state.schedules[idx],
+            date: dateVal,
+            time: timeVal,
+            recurrence,
+            dept,
+            chime,
+            repeat,
+            voiceCode,
+            aiStyle,
+            text,
+            active: true,
+            lastTriggeredKey: null
+          };
+        }
+        showToast('예약 방송 설정이 수정되었습니다.', 'success');
+      } else {
+        state.schedules.push({
+          id: `sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          date: dateVal,
+          time: timeVal,
+          recurrence,
+          dept,
+          chime,
+          repeat,
+          voiceCode,
+          aiStyle,
+          text,
+          active: true,
+          lastTriggeredKey: null
+        });
+        showToast(`${dateVal} ${timeVal} 예약 방송이 등록되었습니다.`, 'success');
+      }
+
+      state.schedules.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+      persistSchedules();
+      renderScheduledList();
+      closeScheduleModal();
+    }
+
+    function toggleScheduleActive(id) {
+      const item = state.schedules.find(s => s.id === id);
+      if (!item) return;
+      item.active = !item.active;
+      if (item.active) item.lastTriggeredKey = null;
+      persistSchedules();
+      renderScheduledList();
+      showToast(item.active ? '예약 방송이 다시 활성화되었습니다.' : '예약 방송이 일시 정지되었습니다.', 'info');
+    }
+
+    function handleDeleteScheduleClick(id) {
+      if (state.pendingDeleteScheduleId !== id) {
+        state.pendingDeleteScheduleId = id;
+        renderScheduledList();
+        setTimeout(() => {
+          if (state.pendingDeleteScheduleId === id) {
+            state.pendingDeleteScheduleId = null;
+            renderScheduledList();
+          }
+        }, 3500);
+        return;
+      }
+
+      state.schedules = state.schedules.filter(s => s.id !== id);
+      state.pendingDeleteScheduleId = null;
+      persistSchedules();
+      renderScheduledList();
+      showToast('예약 방송이 삭제되었습니다.', 'info');
+    }
+
+    function renderScheduledList() {
+      const list = document.getElementById('scheduled-broadcast-list');
+      const badge = document.getElementById('schedule-count-badge');
+      const activeCount = state.schedules.filter(s => s.active).length;
+
+      if (badge) badge.textContent = `${activeCount}건 활성 / 총 ${state.schedules.length}건`;
+      if (!list) return;
+
+      if (state.schedules.length === 0) {
+        list.innerHTML = `
+          <div class="text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            등록된 예약 방송이 없습니다. 위 멘트를 작성한 뒤 <strong>[예약 방송 등록]</strong>을 눌러보세요.
+          </div>`;
+        return;
+      }
+
+      const recurrenceLabels = {
+        once: '1회 방송',
+        weekdays: '평일(월~금)',
+        daily: '매일 반복'
+      };
+
+      list.innerHTML = state.schedules.map((item) => {
+        const isConfirmingDelete = state.pendingDeleteScheduleId === item.id;
+        const recLabel = recurrenceLabels[item.recurrence] || '1회 방송';
+        const voiceShort = (item.voiceCode || 'ai:Kore').replace('ai:', 'AI ').replace('browser:', 'PC음성');
+
+        return `
+          <div class="p-3.5 rounded-xl border ${item.active ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-slate-100/70 opacity-75'} transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="min-w-0 flex-1 space-y-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="font-mono text-xs font-extrabold px-2 py-0.5 rounded-lg ${item.active ? 'bg-amber-500 text-white' : 'bg-slate-400 text-white'}">
+                  ${item.recurrence === 'once' ? escapeHtml(item.date) : ''} ${escapeHtml(item.time)}
+                </span>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                  ${escapeHtml(recLabel)}
+                </span>
+                <span class="text-xs font-bold text-indigo-700">${escapeHtml(item.dept)}</span>
+                <span class="text-[11px] text-slate-400">• ${escapeHtml(voiceShort)}</span>
+              </div>
+              <p class="text-xs text-slate-700 line-clamp-2 leading-relaxed">${escapeHtml(item.text)}</p>
+            </div>
+
+            <div class="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+              <button type="button" onclick="toggleScheduleActive('${escapeHtml(item.id)}')"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${item.active ? 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50' : 'bg-white border-slate-300 text-slate-500 hover:bg-slate-100'}">
+                ${item.active ? '활성' : '정지됨'}
+              </button>
+              <button type="button" onclick="openEditScheduleModal('${escapeHtml(item.id)}')"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 text-slate-700 transition">
+                수정
+              </button>
+              <button type="button" onclick="handleDeleteScheduleClick('${escapeHtml(item.id)}')"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${isConfirmingDelete ? 'bg-rose-600 border-rose-600 text-white' : 'bg-white border-slate-200 hover:border-rose-300 hover:text-rose-600 text-slate-600'}">
+                ${isConfirmingDelete ? '삭제 확인' : '삭제'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function checkAndTriggerSchedules(now) {
+      const todayYMD = formatDateYMD(now);
+      const currentHM = formatTimeHM(now);
+      const dayOfWeek = now.getDay(); // 0: Sun, 6: Sat
+      const triggerKey = `${todayYMD}_${currentHM}`;
+      let changed = false;
+
+      state.schedules.forEach((sched) => {
+        if (!sched.active) return;
+        if (sched.time !== currentHM) return;
+        if (sched.lastTriggeredKey === triggerKey) return;
+
+        let shouldRun = false;
+        if (sched.recurrence === 'once') {
+          shouldRun = sched.date === todayYMD;
+        } else if (sched.recurrence === 'weekdays') {
+          shouldRun = dayOfWeek >= 1 && dayOfWeek <= 5 && todayYMD >= sched.date;
+        } else if (sched.recurrence === 'daily') {
+          shouldRun = todayYMD >= sched.date;
+        }
+
+        if (!shouldRun) return;
+
+        sched.lastTriggeredKey = triggerKey;
+        if (sched.recurrence === 'once') {
+          sched.active = false;
+        }
+        changed = true;
+
+        const [enginePart, voicePart] = (sched.voiceCode || 'ai:Kore').split(':');
+        const payload = {
+          type: 'BROADCAST_REQUEST',
+          id: `bc_sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          channel: state.channelCode,
+          timestamp: now.toLocaleTimeString('ko-KR'),
+          dept: sched.dept,
+          text: sched.text,
+          chime: sched.chime || 'standard',
+          repeat: sched.repeat || 1,
+          voiceEngine: enginePart === 'browser' ? 'browser' : 'ai',
+          aiVoice: enginePart === 'ai' ? (voicePart || 'Kore') : 'Kore',
+          aiStyle: sched.aiStyle || '',
+          browserVoiceURI: enginePart === 'browser' ? (voicePart || '') : '',
+          rate: 0.95,
+          pitch: 1.0
+        };
+
+        dispatchBroadcastPayload(payload, true);
+      });
+
+      if (changed) {
+        persistSchedules();
+        renderScheduledList();
+      }
+    }
+
+    // ==================== 8. NETWORKING ====================
+    function handleSenderIncomingData(data) {
+      if (!data) return;
+      if (data.type === 'BROADCAST_ACK') {
+        updateHistoryStatus(data.id, data.status);
+      }
+    }
+
+    function initLocalBroadcastChannel() {
+      if (state.localChannel) {
+        state.localChannel.close();
+      }
+      if (state.pingTimer) {
+        clearInterval(state.pingTimer);
+      }
+
+      if ('BroadcastChannel' in window) {
+        state.localChannel = new BroadcastChannel(`smart_school_pa_${state.channelCode}`);
+        state.localChannel.onmessage = (event) => {
+          const data = event.data;
+          if (!data || data.channel !== state.channelCode) return;
+
+          if (data.type === 'BROADCAST_REQUEST') {
+            if (state.mode === 'receiver') {
+              enqueueBroadcast(data);
+            }
+          } else if (data.type === 'STOP_BROADCAST') {
+            if (state.mode === 'receiver') {
+              handleStopBroadcastCommand(data, true);
+            }
+          } else if (data.type === 'BROADCAST_ACK') {
+            updateHistoryStatus(data.id, data.status);
+          } else if (data.type === 'RECEIVER_PING') {
+            state.receiverOnline = true;
+            updateSenderConnectionUI(true, '동일 PC 브라우저 탭 연결됨');
+          }
+        };
+
+        state.pingTimer = setInterval(() => {
+          if (state.mode === 'receiver' || state.mode === 'split') {
+            state.localChannel.postMessage({ type: 'RECEIVER_PING', channel: state.channelCode });
+          }
+        }, 3000);
+      }
+    }
+
+    function initNetworkPeers() {
+      cleanupPeers();
+
+      if (typeof Peer === 'undefined') {
+        updateSenderConnectionUI(false, '오프라인 모드 (로컬 탭 통신만 지원)');
+        return;
+      }
+
+      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
+
+      // 1. Receiver Peer (Claims fixed channel ID when opened on Broadcast Room PC)
+      try {
+        const rxPeer = new Peer(receiverPeerId, { debug: 0 });
+        state.receiverPeer = rxPeer;
+
+        rxPeer.on('open', () => {
+          state.receiverOnline = true;
+          updateSenderConnectionUI(true, '방송실 수신 채널 온라인 (준비 완료)');
+        });
+
+        rxPeer.on('connection', (conn) => {
+          state.activeRxConnections.add(conn);
+          conn.on('close', () => state.activeRxConnections.delete(conn));
+          conn.on('error', () => state.activeRxConnections.delete(conn));
+
+          conn.on('data', (data) => {
+            if (!data) return;
+            if (data.type === 'BROADCAST_REQUEST') {
+              enqueueBroadcast(data);
+              try {
+                conn.send({ type: 'BROADCAST_ACK', id: data.id, status: '방송실 수신 완료' });
+              } catch (e) {}
+            } else if (data.type === 'STOP_BROADCAST') {
+              handleStopBroadcastCommand(data, true);
+            }
+          });
+        });
+
+        rxPeer.on('error', () => {});
+      } catch (e) {}
+
+      // 2. Sender Peer (Connects to Broadcast Room PC)
+      try {
+        const txPeer = new Peer({ debug: 0 });
+        state.senderPeer = txPeer;
+
+        txPeer.on('open', () => {
+          connectSenderToReceiver(receiverPeerId);
+        });
+
+        txPeer.on('error', (err) => {
+          if (err.type === 'peer-unavailable') {
+            state.receiverOnline = false;
+            updateSenderConnectionUI(false, '방송실 PC 대기 중 (채널 코드 확인 필요)');
+          }
+        });
+      } catch (e) {}
+    }
+
+    function connectSenderToReceiver(receiverPeerId) {
+      if (!state.senderPeer || state.senderPeer.destroyed) return;
+
+      const conn = state.senderPeer.connect(receiverPeerId, { reliable: true });
+      state.senderConn = conn;
+
+      conn.on('open', () => {
+        state.receiverOnline = true;
+        updateSenderConnectionUI(true, '방송실 음향 PC와 실시간 연결됨');
+      });
+
+      conn.on('data', handleSenderIncomingData);
+
+      conn.on('close', () => {
+        state.receiverOnline = false;
+        updateSenderConnectionUI(false, '방송실 PC와 연결이 끊어졌습니다.');
+      });
+    }
+
+    function sendAckToSender(broadcastId, status) {
+      updateHistoryStatus(broadcastId, status);
+      const ackPacket = {
+        type: 'BROADCAST_ACK',
+        channel: state.channelCode,
+        id: broadcastId,
+        status: status
+      };
+
+      if (state.localChannel) {
+        try {
+          state.localChannel.postMessage(ackPacket);
+        } catch (e) {}
+      }
+
+      state.activeRxConnections.forEach((conn) => {
+        if (conn && conn.open) {
+          try {
+            conn.send(ackPacket);
+          } catch (e) {}
+        }
+      });
+    }
+
+    function updateSenderConnectionUI(isConnected, message) {
+      const dot = document.getElementById('sender-status-dot');
+      const badge = document.getElementById('sender-conn-badge');
+      const desc = document.getElementById('sender-conn-desc');
+
+      if (isConnected) {
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100';
+        if (badge) {
+          badge.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200';
+          badge.textContent = '방송실 연결됨';
+        }
+      } else {
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-400 ring-4 ring-amber-100';
+        if (badge) {
+          badge.className = 'text-xs font-medium px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200';
+          badge.textContent = '방송실 대기 중';
+        }
+      }
+      if (desc && message) desc.textContent = message;
+    }
+
+    function cleanupPeers() {
+      state.activeRxConnections.clear();
+      if (state.senderConn) {
+        try { state.senderConn.close(); } catch (e) {}
+        state.senderConn = null;
+      }
+      if (state.senderPeer) {
+        try { state.senderPeer.destroy(); } catch (e) {}
+        state.senderPeer = null;
+      }
+      if (state.receiverPeer) {
+        try { state.receiverPeer.destroy(); } catch (e) {}
+        state.receiverPeer = null;
+      }
+    }
+
+    function reconnectNetwork() {
+      updateSenderConnectionUI(false, '방송실 연결을 다시 확인하는 중...');
+      initLocalBroadcastChannel();
+      initNetworkPeers();
+    }
+
+    // ==================== 9. UTILITIES & INIT ====================
+    function copyTextToClipboard(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (e) {}
+      document.body.removeChild(textarea);
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const styles = {
+        success: 'bg-slate-900 text-white border-emerald-500',
+        error: 'bg-rose-950 text-white border-rose-500',
+        info: 'bg-slate-900 text-white border-indigo-400'
+      };
+      const iconNames = {
+        success: 'check-circle-2',
+        error: 'alert-circle',
+        info: 'info'
+      };
+      const iconColors = {
+        success: 'text-emerald-400',
+        error: 'text-rose-400',
+        info: 'text-indigo-400'
+      };
+
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl border-l-4 text-xs sm:text-sm font-medium transition-all duration-300 ${styles[type] || styles.info}`;
+      toast.innerHTML = `
+        <i data-lucide="${iconNames[type] || 'info'}" class="w-4 h-4 shrink-0 ${iconColors[type] || 'text-indigo-400'}"></i>
+        <span class="leading-snug">${escapeHtml(message)}</span>
+      `;
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3200);
+    }
+
+    window.onload = function () {
+      loadSavedSettings();
+      applyUrlQueryOverrides();
+      registerDynamicManifest();
+      syncChannelDisplays();
+
+      renderTemplates();
+      renderScheduledList();
+      renderSenderHistory();
+      refreshSenderLiveBannerFromHistory();
+      toggleVoiceEngineUI();
+      switchMode(state.mode);
+
+      const broadcastInput = document.getElementById('broadcast-text');
+      if (broadcastInput) {
+        broadcastInput.addEventListener('input', updateCharCount);
+      }
+
+      loadBrowserVoices();
+      startLiveClock();
+      initLocalBroadcastChannel();
+      initNetworkPeers();
+
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+      }
+    };
+  </script>
+</body>
+</html>
