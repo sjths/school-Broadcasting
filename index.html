@@ -279,10 +279,16 @@
             <!-- Voice Selection Box -->
             <div class="bg-[#EFE9DD]/75 border border-[#3A2E25] rounded-2xl p-3.5 space-y-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-xs font-extrabold text-[#2B2623] flex items-center gap-1.5">
-                  <i data-lucide="user-check" class="w-4 h-4 text-[#7C5638]"></i>
-                  <span>방송 목소리(성우) 및 톤 설정</span>
-                </span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-extrabold text-[#2B2623] flex items-center gap-1.5">
+                    <i data-lucide="user-check" class="w-4 h-4 text-[#7C5638]"></i>
+                    <span>방송 목소리(성우) 및 톤 설정</span>
+                  </span>
+                  <button type="button" onclick="openSettingsModal()" id="voice-engine-status-pill"
+                    class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]/40 hover:bg-amber-200 transition">
+                    PC 내장 음성 모드 (AI 성우 키 미설정)
+                  </button>
+                </div>
                 <button type="button" onclick="testSelectedVoiceSample()" id="btn-voice-sample"
                   class="px-3 py-1 rounded-full text-xs font-bold bg-white hover:bg-[#FAF8F3] text-[#7C5638] border border-[#3A2E25] transition flex items-center gap-1">
                   <i data-lucide="volume-1" class="w-3.5 h-3.5"></i>
@@ -836,6 +842,21 @@
 
     const MALE_AI_VOICES = ['Charon', 'Orus', 'Achird', 'Iapetus', 'Fenrir', 'Puck'];
 
+    // Distinct acoustic & Korean voice matching profiles when running on PC built-in TTS
+    const VOICE_PROFILES = {
+      Charon:  { gender: 'male',   pitch: 0.62, rate: 0.90, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
+      Orus:    { gender: 'male',   pitch: 0.74, rate: 0.96, keywords: ['injoon', 'hyunsu', 'bongjin', 'male', '남성'] },
+      Achird:  { gender: 'male',   pitch: 0.80, rate: 0.91, keywords: ['hyunsu', 'injoon', 'bongjin', 'male', '남성'] },
+      Iapetus: { gender: 'male',   pitch: 0.76, rate: 1.02, keywords: ['injoon', 'bongjin', 'hyunsu', 'male', '남성'] },
+      Fenrir:  { gender: 'male',   pitch: 0.67, rate: 1.06, keywords: ['bongjin', 'injoon', 'hyunsu', 'male', '남성'] },
+      Puck:    { gender: 'male',   pitch: 0.87, rate: 1.08, keywords: ['hyunsu', 'injoon', 'male', '남성'] },
+      Kore:    { gender: 'female', pitch: 1.00, rate: 0.96, keywords: ['sunhi', 'heami', 'google', 'female', '여성'] },
+      Aoede:   { gender: 'female', pitch: 1.15, rate: 1.04, keywords: ['jimin', 'seohyeon', 'google', 'sunhi'] },
+      Sulafat: { gender: 'female', pitch: 0.93, rate: 0.90, keywords: ['yujin', 'soonbok', 'heami', 'sunhi'] },
+      Gacrux:  { gender: 'female', pitch: 0.86, rate: 0.92, keywords: ['soonbok', 'yujin', 'heami', 'sunhi'] },
+      Leda:    { gender: 'female', pitch: 1.24, rate: 1.03, keywords: ['seohyeon', 'jimin', 'google', 'sunhi'] }
+    };
+
     const TEMPLATES = [
       {
         title: '🌅 아침 조회 안내',
@@ -1091,6 +1112,25 @@
         aiStyleGroup.classList.add('hidden');
         browserVoiceGroup.classList.remove('hidden');
       }
+      updateVoiceEngineStatusBadge();
+    }
+
+    function updateVoiceEngineStatusBadge() {
+      const pill = document.getElementById('voice-engine-status-pill');
+      const engineEl = document.getElementById('opt-voice-engine');
+      if (!pill || !engineEl) return;
+
+      const hasKey = Boolean(state.customApiKey && state.customApiKey.trim());
+      if (engineEl.value === 'browser') {
+        pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white text-[#5C432E] border border-[#3A2E25]/40 hover:bg-[#FAF8F3] transition';
+        pill.textContent = '💻 PC 내장 음성 직접 선택 모드';
+      } else if (hasKey) {
+        pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#E6F2EC] text-[#3B7A57] border border-[#3A2E25]/40 hover:opacity-90 transition';
+        pill.textContent = '✨ AI 성우 엔진 활성 (11종 고유 성우)';
+      } else {
+        pill.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]/40 hover:bg-amber-200 transition';
+        pill.textContent = '🔊 표준 음향 변환 모드 (AI 성우 키 설정 시 원본 음성)';
+      }
     }
 
     function syncChannelDisplays() {
@@ -1135,6 +1175,7 @@
       } catch (e) {}
 
       syncChannelDisplays();
+      updateVoiceEngineStatusBadge();
       closeSettingsModal();
       reconnectNetwork();
       showToast(`학교 채널 [${state.channelCode}] 설정이 저장되었습니다.`, 'success');
@@ -1189,13 +1230,57 @@
           `;
           if (prevRx) receiverSelect.value = prevRx;
         }
+
+        // Share Receiver PC's available Korean voices to Sender PCs
+        if (state.mode === 'receiver' || state.mode === 'split') {
+          broadcastReceiverVoicesList();
+        }
       };
 
       populate();
       window.speechSynthesis.onvoiceschanged = populate;
     }
 
-    function resolveKoreanBrowserVoice(preferredURI) {
+    function broadcastReceiverVoicesList() {
+      const koVoices = (state.voices || []).filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
+      const list = (koVoices.length > 0 ? koVoices : state.voices).map(v => ({
+        voiceURI: v.voiceURI,
+        name: v.name,
+        lang: v.lang
+      }));
+      if (list.length === 0) return;
+
+      const packet = {
+        type: 'RECEIVER_VOICES_LIST',
+        channel: state.channelCode,
+        voices: list
+      };
+
+      if (state.localChannel) {
+        try { state.localChannel.postMessage(packet); } catch (e) {}
+      }
+      state.activeRxConnections.forEach((conn) => {
+        if (conn && conn.open) {
+          try { conn.send(packet); } catch (e) {}
+        }
+      });
+    }
+
+    function applyRemoteReceiverVoices(remoteVoices) {
+      if (!Array.isArray(remoteVoices) || remoteVoices.length === 0) return;
+      const senderSelect = document.getElementById('sender-browser-voice-select');
+      if (!senderSelect) return;
+
+      const prevVal = senderSelect.value;
+      senderSelect.innerHTML = `
+        <option value="">한국어 최적 음성 (자동 선택)</option>
+        <option value="__virtual_male__">👨 [남성 톤 변환] PC 기본 음성 중저음 변환</option>
+        ${remoteVoices.map(v => `<option value="${escapeHtml(v.voiceURI)}">📡 [방송실PC] ${escapeHtml(v.name)}</option>`).join('')}
+      `;
+      if (prevVal) senderSelect.value = prevVal;
+    }
+
+    function resolveKoreanBrowserVoice(preferredURI, profile = null) {
       if (!state.voices || state.voices.length === 0) {
         if ('speechSynthesis' in window) {
           state.voices = window.speechSynthesis.getVoices();
@@ -1207,6 +1292,13 @@
       }
       const koVoices = state.voices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
       if (koVoices.length > 0) {
+        // Match distinct Korean voice installed on Receiver PC according to selected character profile
+        if (profile && Array.isArray(profile.keywords)) {
+          for (const kw of profile.keywords) {
+            const matched = koVoices.find(v => v.name.toLowerCase().includes(kw));
+            if (matched) return matched;
+          }
+        }
         return koVoices.find(v => /google|natural|online|heami|sunhi|injoon/i.test(v.name)) || koVoices[0];
       }
       return state.voices[0] || null;
@@ -1245,8 +1337,8 @@
       return new Blob([wavBuffer], { type: 'audio/wav' });
     }
 
-    async function fetchGeminiTtsAudioUrl(text, voiceName = 'Kore', stylePrompt = '') {
-      const apiKey = state.customApiKey || '';
+    async function fetchGeminiTtsAudioUrl(text, voiceName = 'Kore', stylePrompt = '', overrideApiKey = '') {
+      const apiKey = (overrideApiKey || state.customApiKey || '').trim();
       if (!apiKey) return null;
 
       try {
@@ -1290,10 +1382,11 @@
       const engine = options.voiceEngine || 'ai';
       const aiVoice = options.aiVoice || 'Kore';
       const aiStyle = options.aiStyle || '';
+      const apiKey = options.apiKey || state.customApiKey || '';
       let audioUrl = null;
 
       if (engine === 'ai') {
-        audioUrl = await fetchGeminiTtsAudioUrl(text, aiVoice, aiStyle);
+        audioUrl = await fetchGeminiTtsAudioUrl(text, aiVoice, aiStyle, apiKey);
       }
 
       if (audioUrl) {
@@ -1317,7 +1410,29 @@
         };
       }
 
-      // Fallback or explicit browser Web Speech API synthesis
+      // Fallback or explicit browser Web Speech API synthesis with distinct per-character acoustic profiles
+      const rxSelect = document.getElementById('receiver-voice-select');
+      const preferredURI = options.browserVoiceURI || (rxSelect ? rxSelect.value : '');
+      const profile = engine === 'ai' ? (VOICE_PROFILES[aiVoice] || VOICE_PROFILES.Kore) : null;
+      const isVirtualMale = preferredURI === '__virtual_male__' ||
+        (engine === 'ai' && MALE_AI_VOICES.includes(aiVoice));
+
+      const matchedVoice = resolveKoreanBrowserVoice(preferredURI, profile);
+      const sliderRate = parseFloat(options.rate) || 0.95;
+      const sliderPitch = parseFloat(options.pitch) || 1.0;
+
+      let finalRate = sliderRate;
+      let finalPitch = sliderPitch;
+      if (profile) {
+        const rateDelta = sliderRate - 0.95;
+        const pitchDelta = sliderPitch - 1.0;
+        finalRate = Math.min(1.45, Math.max(0.65, profile.rate + rateDelta));
+        finalPitch = Math.min(1.45, Math.max(0.55, profile.pitch + pitchDelta));
+      } else {
+        finalRate = isVirtualMale ? Math.max(0.75, sliderRate * 0.96) : sliderRate;
+        finalPitch = isVirtualMale ? Math.min(sliderPitch, 0.72) : sliderPitch;
+      }
+
       return {
         play: () => new Promise((resolve) => {
           if (!('speechSynthesis' in window)) {
@@ -1325,22 +1440,15 @@
             return;
           }
 
-          window.speechSynthesis.cancel();
-          const rxSelect = document.getElementById('receiver-voice-select');
-          const preferredURI = options.browserVoiceURI || (rxSelect ? rxSelect.value : '');
-          const isVirtualMale = preferredURI === '__virtual_male__' ||
-            (engine === 'ai' && MALE_AI_VOICES.includes(aiVoice));
+          if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+            window.speechSynthesis.cancel();
+          }
 
           const utterance = new SpeechSynthesisUtterance(text);
-          const matchedVoice = resolveKoreanBrowserVoice(preferredURI);
           if (matchedVoice) utterance.voice = matchedVoice;
           utterance.lang = 'ko-KR';
-
-          const baseRate = parseFloat(options.rate) || 0.95;
-          const basePitch = parseFloat(options.pitch) || 1.0;
-
-          utterance.rate = isVirtualMale ? Math.max(0.75, baseRate * 0.96) : baseRate;
-          utterance.pitch = isVirtualMale ? Math.min(basePitch, 0.78) : basePitch;
+          utterance.rate = finalRate;
+          utterance.pitch = finalPitch;
 
           utterance.onend = () => resolve();
           utterance.onerror = () => resolve();
@@ -1350,52 +1458,7 @@
         dispose: () => {}
       };
     }
-
-    async function testSelectedVoiceSample() {
-      const btn = document.getElementById('btn-voice-sample');
-      if (btn) btn.disabled = true;
-
-      const engine = document.getElementById('opt-voice-engine').value;
-      const aiVoice = document.getElementById('opt-ai-voice').value;
-      const aiStyle = document.getElementById('opt-ai-style').value;
-      const browserVoiceURI = document.getElementById('sender-browser-voice-select').value;
-      const rate = parseFloat(document.getElementById('opt-rate').value) || 0.95;
-      const pitch = parseFloat(document.getElementById('opt-pitch').value) || 1.0;
-
-      const sampleText = '아, 아, 안내 말씀 드립니다. 스마트 교내 방송 시스템 목소리 테스트입니다.';
-      showToast('선택하신 목소리 샘플을 재생합니다...', 'info');
-
-      try {
-        const player = await prepareSpeechPlayer(sampleText, {
-          voiceEngine: engine,
-          aiVoice,
-          aiStyle,
-          browserVoiceURI,
-          rate,
-          pitch
-        });
-        await player.play();
-        player.dispose();
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    // ==================== 5. CHIME SYNTHESIZER ====================
-    function stopActiveChime() {
-      if (state.activeChimeTimer) {
-        clearTimeout(state.activeChimeTimer);
-        state.activeChimeTimer = null;
-      }
-      if (state.activeSynth) {
-        try {
-          state.activeSynth.releaseAll();
-          state.activeSynth.dispose();
-        } catch (e) {}
-        state.activeSynth = null;
-      }
-    }
-
+// ... existing code ... -->
     async function playChime(type = 'standard') {
       if (type === 'none' || typeof Tone === 'undefined') return;
       stopActiveChime();
@@ -1403,7 +1466,7 @@
         await Tone.start();
         const synth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'sine' },
-          envelope: { attack: 0.03, decay: 0.35, sustain: 0.15, release: 0.6 }
+          envelope: { attack: 0.02, decay: 0.28, sustain: 0.12, release: 0.35 }
         }).toDestination();
         state.activeSynth = synth;
 
@@ -1411,22 +1474,22 @@
         let durationMs = 0;
         if (type === 'standard') {
           synth.triggerAttackRelease('C5', '8n', now);
-          synth.triggerAttackRelease('E5', '8n', now + 0.3);
-          synth.triggerAttackRelease('G5', '8n', now + 0.6);
-          synth.triggerAttackRelease('C6', '4n', now + 0.9);
-          durationMs = 1450;
+          synth.triggerAttackRelease('E5', '8n', now + 0.24);
+          synth.triggerAttackRelease('G5', '8n', now + 0.48);
+          synth.triggerAttackRelease('C6', '4n', now + 0.72);
+          durationMs = 1050;
         } else if (type === 'westminster') {
           synth.triggerAttackRelease('E5', '4n', now);
-          synth.triggerAttackRelease('C5', '4n', now + 0.38);
-          synth.triggerAttackRelease('D5', '4n', now + 0.76);
-          synth.triggerAttackRelease('G4', '4n', now + 1.14);
-          durationMs = 1750;
+          synth.triggerAttackRelease('C5', '4n', now + 0.32);
+          synth.triggerAttackRelease('D5', '4n', now + 0.64);
+          synth.triggerAttackRelease('G4', '4n', now + 0.96);
+          durationMs = 1320;
         } else if (type === 'alert') {
           synth.triggerAttackRelease('A5', '16n', now);
-          synth.triggerAttackRelease('E5', '16n', now + 0.18);
-          synth.triggerAttackRelease('A5', '16n', now + 0.38);
-          synth.triggerAttackRelease('E5', '16n', now + 0.56);
-          durationMs = 900;
+          synth.triggerAttackRelease('E5', '16n', now + 0.15);
+          synth.triggerAttackRelease('A5', '16n', now + 0.30);
+          synth.triggerAttackRelease('E5', '16n', now + 0.45);
+          durationMs = 680;
         }
 
         await new Promise((resolve) => {
@@ -1442,83 +1505,7 @@
         }
       } catch (e) {}
     }
-
-    async function activateReceiverAudio() {
-      try {
-        if (typeof Tone !== 'undefined') {
-          await Tone.start();
-        }
-        if ('speechSynthesis' in window) {
-          const silentUtter = new SpeechSynthesisUtterance('');
-          silentUtter.volume = 0;
-          window.speechSynthesis.speak(silentUtter);
-        }
-        if ('wakeLock' in navigator && !state.wakeLock) {
-          try {
-            state.wakeLock = await navigator.wakeLock.request('screen');
-          } catch (e) {}
-        }
-
-        state.receiverAudioActivated = true;
-        const notice = document.getElementById('audio-lock-notice');
-        const btn = document.getElementById('btn-activate-audio');
-        if (notice) notice.classList.add('hidden');
-        if (btn) {
-          btn.className = 'px-4 py-2 rounded-full text-xs sm:text-sm font-extrabold bg-[#3A3029] text-emerald-300 border border-emerald-400/50 flex items-center gap-2 transition';
-          btn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>음향 출력 대기 중 (활성화됨)</span>`;
-          lucide.createIcons();
-        }
-        showToast('방송실 음향 시스템 출력이 활성화되었습니다.', 'success');
-      } catch (e) {
-        showToast('오디오 활성화 중 브라우저 권한을 확인해 주세요.', 'error');
-      }
-    }
-
-    async function testReceiverSpeaker() {
-      if (state.isBroadcasting) {
-        showToast('현재 방송이 진행 중입니다.', 'info');
-        return;
-      }
-      await activateReceiverAudio();
-      await playChime('standard');
-      const player = await prepareSpeechPlayer('방송실 음향 시스템 및 교내 스피커 출력 테스트 중입니다.', {
-        voiceEngine: 'browser'
-      });
-      await player.play();
-      player.dispose();
-    }
-
-    // ==================== 6. BROADCAST & QUEUE ====================
-    function collectComposerPayload() {
-      const text = (document.getElementById('broadcast-text').value || '').trim();
-      const dept = (document.getElementById('sender-dept').value || '').trim() || '교무실';
-      const chime = document.getElementById('opt-chime').value;
-      const repeat = parseInt(document.getElementById('opt-repeat').value, 10) || 1;
-      const voiceEngine = document.getElementById('opt-voice-engine').value;
-      const aiVoice = document.getElementById('opt-ai-voice').value;
-      const aiStyle = document.getElementById('opt-ai-style').value;
-      const browserVoiceURI = document.getElementById('sender-browser-voice-select').value;
-      const rate = parseFloat(document.getElementById('opt-rate').value) || 0.95;
-      const pitch = parseFloat(document.getElementById('opt-pitch').value) || 1.0;
-
-      return {
-        type: 'BROADCAST_REQUEST',
-        id: `bc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        channel: state.channelCode,
-        timestamp: new Date().toLocaleTimeString('ko-KR'),
-        dept,
-        text,
-        chime,
-        repeat,
-        voiceEngine,
-        aiVoice,
-        aiStyle,
-        browserVoiceURI,
-        rate,
-        pitch
-      };
-    }
-
+// ... existing code ... -->
     async function previewLocalBroadcast() {
       const payload = collectComposerPayload();
       if (!payload.text) {
@@ -1527,278 +1514,28 @@
       }
 
       showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
-      const [, player] = await Promise.all([
-        playChime(payload.chime),
-        prepareSpeechPlayer(payload.text, payload)
-      ]);
-      await player.play();
-      player.dispose();
+      const speechPlayer = await prepareSpeechPlayer(payload.text, payload);
+      await playChime(payload.chime);
+      await speechPlayer.play();
+      speechPlayer.dispose();
     }
-
-    function sendBroadcast() {
-      const payload = collectComposerPayload();
-      if (!payload.text) {
-        showToast('송출할 방송 멘트를 입력해 주세요.', 'error');
-        document.getElementById('broadcast-text').focus();
-        return;
-      }
-      dispatchBroadcastPayload(payload, false);
-    }
-
-    function dispatchBroadcastPayload(payload, isScheduled = false) {
-      // 1. Add to sender history
-      const historyItem = {
-        ...payload,
-        dept: isScheduled ? `[예약] ${payload.dept}` : payload.dept,
-        status: '송출 요청'
-      };
-      state.history.unshift(historyItem);
-      persistHistory();
-      renderSenderHistory();
-      updateSenderLiveBanner(historyItem);
-
-      // 2. Send via PeerJS (Remote PC-to-PC)
-      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
-      if (state.senderConn && state.senderConn.open) {
-        try {
-          state.senderConn.send(payload);
-        } catch (e) {}
-      } else if (state.senderPeer && !state.senderPeer.destroyed) {
-        try {
-          const tempConn = state.senderPeer.connect(receiverPeerId, { reliable: true });
-          tempConn.on('open', () => {
-            state.senderConn = tempConn;
-            state.receiverOnline = true;
-            updateSenderConnectionUI(true, '방송실 음향 PC와 실시간 연결됨');
-            tempConn.send(payload);
-          });
-          tempConn.on('data', handleSenderIncomingData);
-        } catch (e) {}
-      }
-
-      // 3. Send via BroadcastChannel (Same PC / Multi-Tab)
-      if (state.localChannel) {
-        try {
-          state.localChannel.postMessage(payload);
-        } catch (e) {}
-      }
-
-      // 4. Execute directly if in Split mode or if this tab holds the Receiver role
-      const holdsReceiverRole = state.receiverPeer && !state.receiverPeer.destroyed && state.receiverPeer.open;
-      if (state.mode === 'split' || state.mode === 'receiver' || holdsReceiverRole) {
-        enqueueBroadcast(payload);
-      }
-
-      showToast(
-        isScheduled ? `예약 방송(${payload.dept})이 자동 송출되었습니다.` : '교내 방송이 송출되었습니다.',
-        'success'
-      );
-    }
-
-    function requestRemoteStop(targetId = null) {
-      const stopPacket = {
-        type: 'STOP_BROADCAST',
-        channel: state.channelCode,
-        targetId: targetId,
-        timestamp: new Date().toLocaleTimeString('ko-KR')
-      };
-
-      // 1. Send stop signal over PeerJS
-      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
-      if (state.senderConn && state.senderConn.open) {
-        try {
-          state.senderConn.send(stopPacket);
-        } catch (e) {}
-      } else if (state.senderPeer && !state.senderPeer.destroyed) {
-        try {
-          const tempConn = state.senderPeer.connect(receiverPeerId, { reliable: true });
-          tempConn.on('open', () => {
-            state.senderConn = tempConn;
-            tempConn.send(stopPacket);
-          });
-          tempConn.on('data', handleSenderIncomingData);
-        } catch (e) {}
-      }
-
-      // 2. Send stop signal over BroadcastChannel
-      if (state.localChannel) {
-        try {
-          state.localChannel.postMessage(stopPacket);
-        } catch (e) {}
-      }
-
-      // 3. Update local history statuses immediately
-      const activeStatuses = ['송출 요청', '방송실 수신 완료', '대기열 등록', '방송 중'];
-      state.history.forEach((item) => {
-        if (targetId ? item.id === targetId : activeStatuses.includes(item.status)) {
-          item.status = '강제 중단됨';
-        }
-      });
-      persistHistory();
-      renderSenderHistory();
-
-      // 4. Execute local/receiver stop if in Split/Receiver mode or holding Receiver peer
-      const holdsReceiverRole = state.receiverPeer && !state.receiverPeer.destroyed && state.receiverPeer.open;
-      if (state.mode === 'split' || state.mode === 'receiver' || holdsReceiverRole) {
-        handleStopBroadcastCommand(stopPacket, false);
-      } else {
-        showToast(
-          targetId ? '선택한 방송의 중단 요청을 방송실로 전송했습니다.' : '방송실에 즉시 중단 신호를 전송했습니다.',
-          'error'
-        );
-      }
-
-      refreshSenderLiveBannerFromHistory();
-    }
-
-    function updateSenderLiveBanner(activeItem) {
-      const banner = document.getElementById('sender-live-banner');
-      const deptEl = document.getElementById('sender-live-dept');
-      const textEl = document.getElementById('sender-live-text');
-      const topStopBtn = document.getElementById('btn-sender-emergency-stop');
-      if (!banner) return;
-
-      if (activeItem) {
-        banner.classList.remove('hidden');
-        if (deptEl) deptEl.textContent = `[${activeItem.dept}]`;
-        if (textEl) textEl.textContent = activeItem.text;
-        if (topStopBtn) {
-          topStopBtn.className = 'px-3.5 py-2 text-xs font-extrabold bg-[#B9382C] hover:bg-[#992B21] text-white border border-[#3A2E25] rounded-full flex items-center gap-1.5 shadow-sm animate-pulse transition';
-        }
-      } else {
-        banner.classList.add('hidden');
-        if (topStopBtn) {
-          topStopBtn.className = 'px-3.5 py-2 text-xs font-bold bg-[#FDECEC] hover:bg-[#B9382C] text-[#B9382C] hover:text-white border border-[#3A2E25] rounded-full flex items-center gap-1.5 transition';
-        }
-      }
-    }
-
-    function refreshSenderLiveBannerFromHistory() {
-      const activeStatuses = ['방송 중', '대기열 등록', '방송실 수신 완료', '송출 요청'];
-      const running = state.history.find((h) => activeStatuses.includes(h.status));
-      updateSenderLiveBanner(running || null);
-    }
-
-    function updateHistoryStatus(id, status) {
-      const item = state.history.find(h => h.id === id);
-      if (item) {
-        item.status = status;
-        persistHistory();
-        renderSenderHistory();
-      }
-      refreshSenderLiveBannerFromHistory();
-    }
-
-    function renderSenderHistory() {
-      const list = document.getElementById('sender-history-list');
-      if (!list) return;
-      if (state.history.length === 0) {
-        list.innerHTML = `
-          <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
-            아직 송출된 방송 기록이 없습니다.
-          </div>`;
-        return;
-      }
-
-      const stoppableStatuses = ['송출 요청', '방송실 수신 완료', '대기열 등록', '방송 중'];
-
-      list.innerHTML = state.history.map((item, idx) => {
-        let badgeStyle = 'bg-[#EFE9DD] text-[#5C432E]';
-        if (item.status === '방송 중') badgeStyle = 'bg-[#FDECEC] text-[#B9382C] animate-pulse';
-        else if (item.status === '송출 완료') badgeStyle = 'bg-[#E6F2EC] text-[#3B7A57]';
-        else if (item.status === '대기열 등록' || item.status === '방송실 수신 완료') badgeStyle = 'bg-amber-100 text-amber-900';
-        else if (item.status === '강제 중단됨' || item.status === '연결 실패') badgeStyle = 'bg-[#FDECEC] text-[#B9382C]';
-
-        const canStop = stoppableStatuses.includes(item.status);
-
-        return `
-          <div class="dash-item p-3.5 ${canStop ? 'bg-[#FDECEC]/60 border-[#B9382C]' : 'bg-white'} transition flex items-start justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2 mb-1">
-                <span class="w-2 h-2 rounded-xs bg-[#7C5638] shrink-0"></span>
-                <span class="text-[11px] font-mono text-[#786F68]">${escapeHtml(item.timestamp)}</span>
-                <span class="text-xs font-extrabold text-[#7C5638]">${escapeHtml(item.dept)}</span>
-                <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-[#3A2E25]/25 ${badgeStyle}">${escapeHtml(item.status)}</span>
-              </div>
-              <p class="text-xs text-[#2B2623] line-clamp-2 leading-relaxed pl-4">${escapeHtml(item.text)}</p>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              ${canStop ? `
-                <button onclick="requestRemoteStop('${escapeHtml(item.id)}')" title="이 방송 즉시 중단"
-                  class="px-3 py-1 rounded-full text-xs font-extrabold bg-[#B9382C] hover:bg-[#992B21] text-white border border-[#3A2E25] transition flex items-center gap-1">
-                  <i data-lucide="square" class="w-3 h-3 fill-current"></i>
-                  <span>중단</span>
-                </button>
-              ` : ''}
-              <button onclick="reloadHistoryItem(${idx})" title="멘트 다시 불러오기"
-                class="text-xs font-extrabold text-[#7C5638] hover:underline px-1.5 py-1 transition">
-                불러오기
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-      lucide.createIcons();
-    }
-
-    function reloadHistoryItem(idx) {
-      const item = state.history[idx];
-      if (!item) return;
-      document.getElementById('broadcast-text').value = item.text;
-      document.getElementById('sender-dept').value = item.dept.replace(/^\[예약\]\s*/, '');
-      if (item.chime) document.getElementById('opt-chime').value = item.chime;
-      if (item.repeat) document.getElementById('opt-repeat').value = String(item.repeat);
-      updateCharCount();
-      showToast('이전 방송 멘트를 입력창으로 불러왔습니다.', 'info');
-    }
-
-    function clearHistory() {
-      state.history = [];
-      persistHistory();
-      renderSenderHistory();
-      refreshSenderLiveBannerFromHistory();
-    }
-
-    function enqueueBroadcast(payload) {
-      if (!payload || !payload.id) return;
-      if (state.currentBroadcastId === payload.id || state.queue.some(q => q.id === payload.id)) {
-        return; // Deduplicate identical packet across dual transport
-      }
-
-      state.queue.push(payload);
-      renderReceiverQueue();
-
-      if (state.isBroadcasting) {
-        sendAckToSender(payload.id, '대기열 등록');
-      } else {
-        processNextBroadcast();
-      }
-    }
-
-    async function processNextBroadcast() {
-      if (state.isBroadcasting || state.queue.length === 0) return;
-
-      state.isBroadcasting = true;
-      state.broadcastSessionId += 1;
-      const sessionId = state.broadcastSessionId;
-
-      const current = state.queue.shift();
-      state.currentBroadcastId = current.id;
-      renderReceiverQueue();
-
-      setOnAirUI(true, current);
-      sendAckToSender(current.id, '방송 중');
-
+// ... existing code ... -->
       if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
         try { await Tone.start(); } catch (e) {}
       }
 
-      const [, speechPlayer] = await Promise.all([
-        playChime(current.chime),
-        prepareSpeechPlayer(current.text, current)
-      ]);
+      // Prepare speech player first so AI audio download never causes dead air after the chime
+      const speechPlayer = await prepareSpeechPlayer(current.text, current);
 
-      // Abort immediately if stopped during chime or audio preparation
+      // Abort immediately if stopped during audio preparation
+      if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
+        speechPlayer.dispose();
+        return;
+      }
+
+      await playChime(current.chime);
+
+      // Abort immediately if stopped during chime
       if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) {
         speechPlayer.dispose();
         return;
@@ -1809,764 +1546,10 @@
           if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
           await speechPlayer.play();
           if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) {
-            await new Promise(r => setTimeout(r, 900));
+            await new Promise(r => setTimeout(r, 700));
           }
         }
       } finally {
         speechPlayer.dispose();
       }
-
-      if (state.isBroadcasting && state.broadcastSessionId === sessionId && current.chime !== 'none') {
-        await playChime(current.chime === 'alert' ? 'none' : 'standard');
-      }
-
-      // Only finalize normal completion if not already aborted by emergencyStopBroadcast
-      if (state.isBroadcasting && state.broadcastSessionId === sessionId) {
-        state.isBroadcasting = false;
-        state.currentBroadcastId = null;
-        setOnAirUI(false, null);
-        sendAckToSender(current.id, '송출 완료');
-
-        if (state.queue.length > 0) {
-          setTimeout(processNextBroadcast, 500);
-        }
-      }
-    }
-
-    function setOnAirUI(active, item) {
-      const badge = document.getElementById('on-air-badge');
-      const dot = document.getElementById('on-air-dot');
-      const text = document.getElementById('on-air-text');
-      const deptEl = document.getElementById('now-playing-dept');
-      const bodyEl = document.getElementById('now-playing-text');
-      const bars = document.getElementById('visualizer-bars');
-      const glow = document.getElementById('receiver-glow');
-
-      if (active && item) {
-        if (badge) badge.className = 'px-3.5 py-1.5 rounded-full font-mono font-extrabold text-xs sm:text-sm tracking-wider bg-[#B9382C] text-white border border-[#FAF8F3]/40 shadow-lg flex items-center gap-2 transition-all';
-        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-white animate-ping';
-        if (text) text.textContent = 'ON AIR';
-        if (deptEl) deptEl.textContent = `송출 부서: ${item.dept} (${item.timestamp})`;
-        if (bodyEl) {
-          bodyEl.textContent = item.text;
-          bodyEl.className = 'text-base sm:text-xl font-extrabold text-white leading-relaxed my-auto break-keep relative z-10';
-        }
-        if (bars) bars.classList.remove('opacity-30');
-        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#B9382C]/30 blur-3xl pointer-events-none transition-colors duration-500';
-      } else {
-        if (badge) badge.className = 'px-3.5 py-1.5 rounded-full font-mono font-extrabold text-xs sm:text-sm tracking-wider bg-[#3A3029] text-[#D7CEC2] border border-[#FAF8F3]/25 flex items-center gap-2 transition-all';
-        if (dot) dot.className = 'w-2.5 h-2.5 rounded-full bg-[#A89F94]';
-        if (text) text.textContent = 'STANDBY';
-        if (deptEl) deptEl.textContent = '수신 대기 중...';
-        if (bodyEl) {
-          bodyEl.textContent = '교무실 PC에서 방송을 송출하면 이곳에 방송 자막이 표시되고 음향 시스템으로 음성 안내가 시작됩니다.';
-          bodyEl.className = 'text-base sm:text-xl font-medium text-[#EFE9DD] leading-relaxed my-auto break-keep relative z-10';
-        }
-        if (bars) bars.classList.add('opacity-30');
-        if (glow) glow.className = 'absolute -top-24 -right-24 w-64 h-64 rounded-full bg-[#7C5638]/20 blur-3xl pointer-events-none transition-colors duration-500';
-      }
-    }
-
-    function renderReceiverQueue() {
-      const list = document.getElementById('receiver-queue-list');
-      const countBadge = document.getElementById('queue-count-badge');
-      if (countBadge) countBadge.textContent = `${state.queue.length}건 대기`;
-      if (!list) return;
-
-      if (state.queue.length === 0) {
-        list.innerHTML = `
-          <div class="text-xs text-[#A89F94] bg-[#1E1915] border border-[#FAF8F3]/15 rounded-2xl p-3 text-center">
-            대기 중인 예약/중복 방송이 없습니다.
-          </div>`;
-        return;
-      }
-
-      list.innerHTML = state.queue.map((q, i) => `
-        <div class="bg-[#1E1915] border border-[#FAF8F3]/20 rounded-2xl p-2.5 flex items-center justify-between gap-2 text-xs">
-          <div class="min-w-0 flex-1">
-            <span class="font-mono text-amber-300 font-bold mr-1.5">#${i + 1}</span>
-            <span class="font-bold text-[#EFE9DD] mr-1.5">[${escapeHtml(q.dept)}]</span>
-            <span class="text-[#C7BDB0] truncate">${escapeHtml(q.text)}</span>
-          </div>
-          <button onclick="handleStopBroadcastCommand({ targetId: '${escapeHtml(q.id)}' }, false)"
-            class="px-2.5 py-1 rounded-full bg-[#B9382C]/30 hover:bg-[#B9382C] text-rose-200 hover:text-white transition shrink-0 font-bold">
-            취소
-          </button>
-        </div>
-      `).join('');
-    }
-
-    function handleStopBroadcastCommand(data, fromRemote = true) {
-      const targetId = data ? data.targetId : null;
-
-      // If a specific queued (not yet playing) broadcast was cancelled, remove only that item
-      if (targetId && state.currentBroadcastId !== targetId) {
-        const idx = state.queue.findIndex((q) => q.id === targetId);
-        if (idx !== -1) {
-          state.queue.splice(idx, 1);
-          renderReceiverQueue();
-          sendAckToSender(targetId, '강제 중단됨');
-          showToast('대기 중이던 방송이 취소되었습니다.', 'info');
-          return;
-        }
-      }
-
-      // Otherwise stop active broadcast (and clear queue if global stop)
-      emergencyStopBroadcast(fromRemote);
-    }
-
-    function emergencyStopBroadcast(fromRemote = false) {
-      const stoppedId = state.currentBroadcastId;
-      const queuedIds = state.queue.map((q) => q.id);
-
-      state.broadcastSessionId += 1;
-      state.isBroadcasting = false;
-      state.currentBroadcastId = null;
-      state.queue = [];
-
-      stopActiveChime();
-
-      if (state.currentAudio) {
-        try {
-          state.currentAudio.pause();
-          state.currentAudio.currentTime = 0;
-        } catch (e) {}
-        state.currentAudio = null;
-      }
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-
-      setOnAirUI(false, null);
-      renderReceiverQueue();
-
-      if (stoppedId) sendAckToSender(stoppedId, '강제 중단됨');
-      queuedIds.forEach((qid) => sendAckToSender(qid, '강제 중단됨'));
-
-      showToast(
-        fromRemote
-          ? '교무실 요청에 의해 진행 중인 방송이 즉시 중단되었습니다.'
-          : '현재 진행 중인 방송과 대기열을 모두 중지했습니다.',
-        'error'
-      );
-    }
-
-    // ==================== 7. SCHEDULER ====================
-    function formatDateYMD(dateObj) {
-      const y = dateObj.getFullYear();
-      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dateObj.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-
-    function formatTimeHM(dateObj) {
-      const hh = String(dateObj.getHours()).padStart(2, '0');
-      const mm = String(dateObj.getMinutes()).padStart(2, '0');
-      return `${hh}:${mm}`;
-    }
-
-    function startLiveClock() {
-      if (state.clockTimer) clearInterval(state.clockTimer);
-
-      const tick = () => {
-        const now = new Date();
-        const clockEl = document.getElementById('live-system-clock');
-        if (clockEl) {
-          clockEl.textContent = now.toLocaleTimeString('ko-KR', { hour12: false });
-        }
-        checkAndTriggerSchedules(now);
-      };
-
-      tick();
-      state.clockTimer = setInterval(tick, 1000);
-    }
-
-    function openScheduleModalFromComposer() {
-      const composerText = (document.getElementById('broadcast-text').value || '').trim();
-      const composerDept = (document.getElementById('sender-dept').value || '').trim() || '교무기획부';
-      const composerChime = document.getElementById('opt-chime').value;
-      const composerRepeat = document.getElementById('opt-repeat').value;
-      const engine = document.getElementById('opt-voice-engine').value;
-      const aiVoice = document.getElementById('opt-ai-voice').value;
-      const browserVoice = document.getElementById('sender-browser-voice-select').value;
-      const aiStyle = document.getElementById('opt-ai-style').value;
-
-      state.editingScheduleId = null;
-      const future = new Date(Date.now() + 5 * 60 * 1000);
-
-      document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="calendar-clock" class="w-5 h-5 text-[#7C5638]"></i>
-        <span>새 예약 방송 등록</span>
-      `;
-      document.getElementById('sched-date').value = formatDateYMD(future);
-      document.getElementById('sched-time').value = formatTimeHM(future);
-      document.getElementById('sched-recurrence').value = 'once';
-      document.getElementById('sched-dept').value = composerDept;
-      document.getElementById('sched-chime').value = composerChime;
-      document.getElementById('sched-repeat').value = composerRepeat;
-      document.getElementById('sched-voice').value = engine === 'ai' ? `ai:${aiVoice}` : `browser:${browserVoice}`;
-      document.getElementById('sched-style').value = aiStyle;
-      document.getElementById('sched-text').value = composerText;
-
-      const modal = document.getElementById('schedule-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-      lucide.createIcons();
-    }
-
-    function openNewScheduleModal() {
-      state.editingScheduleId = null;
-      const future = new Date(Date.now() + 5 * 60 * 1000);
-
-      document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="calendar-clock" class="w-5 h-5 text-[#7C5638]"></i>
-        <span>새 예약 방송 등록</span>
-      `;
-      document.getElementById('sched-date').value = formatDateYMD(future);
-      document.getElementById('sched-time').value = formatTimeHM(future);
-      document.getElementById('sched-recurrence').value = 'once';
-      document.getElementById('sched-dept').value = (document.getElementById('sender-dept').value || '').trim() || '교무기획부';
-      document.getElementById('sched-chime').value = 'standard';
-      document.getElementById('sched-repeat').value = '1';
-      document.getElementById('sched-voice').value = 'ai:Kore';
-      document.getElementById('sched-style').value = '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
-      document.getElementById('sched-text').value = '';
-
-      const modal = document.getElementById('schedule-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-      lucide.createIcons();
-    }
-
-    function openEditScheduleModal(id) {
-      const item = state.schedules.find(s => s.id === id);
-      if (!item) return;
-
-      state.editingScheduleId = id;
-      document.getElementById('schedule-modal-title').innerHTML = `
-        <i data-lucide="edit-3" class="w-5 h-5 text-[#7C5638]"></i>
-        <span>예약 방송 수정</span>
-      `;
-      document.getElementById('sched-date').value = item.date;
-      document.getElementById('sched-time').value = item.time;
-      document.getElementById('sched-recurrence').value = item.recurrence || 'once';
-      document.getElementById('sched-dept').value = item.dept;
-      document.getElementById('sched-chime').value = item.chime;
-      document.getElementById('sched-repeat').value = String(item.repeat || 1);
-      document.getElementById('sched-voice').value = item.voiceCode || 'ai:Kore';
-      document.getElementById('sched-style').value = item.aiStyle || '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요';
-      document.getElementById('sched-text').value = item.text;
-
-      const modal = document.getElementById('schedule-modal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
-      lucide.createIcons();
-    }
-
-    function closeScheduleModal() {
-      const modal = document.getElementById('schedule-modal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
-      state.editingScheduleId = null;
-    }
-
-    function adjustModalTime(minutesToAdd) {
-      const target = new Date(Date.now() + minutesToAdd * 60 * 1000);
-      document.getElementById('sched-date').value = formatDateYMD(target);
-      document.getElementById('sched-time').value = formatTimeHM(target);
-    }
-
-    function saveScheduleModal() {
-      const dateVal = document.getElementById('sched-date').value;
-      const timeVal = document.getElementById('sched-time').value;
-      const recurrence = document.getElementById('sched-recurrence').value;
-      const dept = (document.getElementById('sched-dept').value || '').trim() || '교무기획부';
-      const chime = document.getElementById('sched-chime').value;
-      const repeat = parseInt(document.getElementById('sched-repeat').value, 10) || 1;
-      const voiceCode = document.getElementById('sched-voice').value;
-      const aiStyle = document.getElementById('sched-style').value;
-      const text = (document.getElementById('sched-text').value || '').trim();
-
-      if (!dateVal || !timeVal) {
-        showToast('예약 날짜와 방송 시각을 모두 선택해 주세요.', 'error');
-        return;
-      }
-      if (!text) {
-        showToast('예약 방송 멘트를 입력해 주세요.', 'error');
-        document.getElementById('sched-text').focus();
-        return;
-      }
-
-      if (state.editingScheduleId) {
-        const idx = state.schedules.findIndex(s => s.id === state.editingScheduleId);
-        if (idx !== -1) {
-          state.schedules[idx] = {
-            ...state.schedules[idx],
-            date: dateVal,
-            time: timeVal,
-            recurrence,
-            dept,
-            chime,
-            repeat,
-            voiceCode,
-            aiStyle,
-            text,
-            active: true,
-            lastTriggeredKey: null
-          };
-        }
-        showToast('예약 방송 설정이 수정되었습니다.', 'success');
-      } else {
-        state.schedules.push({
-          id: `sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          date: dateVal,
-          time: timeVal,
-          recurrence,
-          dept,
-          chime,
-          repeat,
-          voiceCode,
-          aiStyle,
-          text,
-          active: true,
-          lastTriggeredKey: null
-        });
-        showToast(`${dateVal} ${timeVal} 예약 방송이 등록되었습니다.`, 'success');
-      }
-
-      state.schedules.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
-      persistSchedules();
-      renderScheduledList();
-      closeScheduleModal();
-    }
-
-    function toggleScheduleActive(id) {
-      const item = state.schedules.find(s => s.id === id);
-      if (!item) return;
-      item.active = !item.active;
-      if (item.active) item.lastTriggeredKey = null;
-      persistSchedules();
-      renderScheduledList();
-      showToast(item.active ? '예약 방송이 다시 활성화되었습니다.' : '예약 방송이 일시 정지되었습니다.', 'info');
-    }
-
-    function handleDeleteScheduleClick(id) {
-      if (state.pendingDeleteScheduleId !== id) {
-        state.pendingDeleteScheduleId = id;
-        renderScheduledList();
-        setTimeout(() => {
-          if (state.pendingDeleteScheduleId === id) {
-            state.pendingDeleteScheduleId = null;
-            renderScheduledList();
-          }
-        }, 3500);
-        return;
-      }
-
-      state.schedules = state.schedules.filter(s => s.id !== id);
-      state.pendingDeleteScheduleId = null;
-      persistSchedules();
-      renderScheduledList();
-      showToast('예약 방송이 삭제되었습니다.', 'info');
-    }
-
-    function renderScheduledList() {
-      const list = document.getElementById('scheduled-broadcast-list');
-      const badge = document.getElementById('schedule-count-badge');
-      const activeCount = state.schedules.filter(s => s.active).length;
-
-      if (badge) badge.textContent = `${activeCount}건 활성 / 총 ${state.schedules.length}건`;
-      if (!list) return;
-
-      if (state.schedules.length === 0) {
-        list.innerHTML = `
-          <div class="text-center py-6 text-xs text-[#786F68] bg-white rounded-2xl border border-dashed border-[#3A2E25]/50">
-            등록된 예약 방송이 없습니다. 위 멘트를 작성한 뒤 <strong>[예약 방송 등록]</strong>을 눌러보세요.
-          </div>`;
-        return;
-      }
-
-      const recurrenceLabels = {
-        once: '1회 방송',
-        weekdays: '평일(월~금)',
-        daily: '매일 반복'
-      };
-
-      list.innerHTML = state.schedules.map((item) => {
-        const isConfirmingDelete = state.pendingDeleteScheduleId === item.id;
-        const recLabel = recurrenceLabels[item.recurrence] || '1회 방송';
-        const voiceShort = (item.voiceCode || 'ai:Kore').replace('ai:', 'AI ').replace('browser:', 'PC음성');
-
-        return `
-          <div class="dash-item p-3.5 ${item.active ? 'bg-white' : 'bg-[#EFE9DD]/60 opacity-75'} transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-xs ${item.active ? 'bg-[#7C5638]' : 'bg-[#A89F94]'} shrink-0"></span>
-                <span class="font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-full border border-[#3A2E25] ${item.active ? 'bg-[#7C5638] text-white' : 'bg-[#EAE3D5] text-[#5C432E]'}">
-                  ${item.recurrence === 'once' ? escapeHtml(item.date) : ''} ${escapeHtml(item.time)}
-                </span>
-                <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#FAF8F3] border border-[#3A2E25]/30 text-[#5C432E]">
-                  ${escapeHtml(recLabel)}
-                </span>
-                <span class="text-xs font-extrabold text-[#2B2623]">${escapeHtml(item.dept)}</span>
-                <span class="text-[11px] text-[#786F68]">• ${escapeHtml(voiceShort)}</span>
-              </div>
-              <p class="text-xs font-medium text-[#2B2623] line-clamp-2 leading-relaxed pl-4">${escapeHtml(item.text)}</p>
-            </div>
-
-            <div class="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
-              <button type="button" onclick="toggleScheduleActive('${escapeHtml(item.id)}')"
-                class="px-2.5 py-1 rounded-full text-xs font-bold border border-[#3A2E25] transition ${item.active ? 'bg-[#E6F2EC] text-[#3B7A57]' : 'bg-[#FAF8F3] text-[#786F68]'}">
-                ${item.active ? '활성' : '정지됨'}
-              </button>
-              <button type="button" onclick="openEditScheduleModal('${escapeHtml(item.id)}')"
-                class="text-xs font-extrabold text-[#7C5638] hover:underline px-1 py-1 transition">
-                고치기
-              </button>
-              <button type="button" onclick="handleDeleteScheduleClick('${escapeHtml(item.id)}')"
-                class="text-xs font-extrabold transition px-1.5 py-1 rounded-full ${isConfirmingDelete ? 'bg-[#B9382C] text-white px-2.5 border border-[#3A2E25]' : 'text-[#B9382C] hover:underline'}">
-                ${isConfirmingDelete ? '지우기 확인' : '지우기'}
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    function checkAndTriggerSchedules(now) {
-      const todayYMD = formatDateYMD(now);
-      const currentHM = formatTimeHM(now);
-      const dayOfWeek = now.getDay(); // 0: Sun, 6: Sat
-      const triggerKey = `${todayYMD}_${currentHM}`;
-      let changed = false;
-
-      state.schedules.forEach((sched) => {
-        if (!sched.active) return;
-        if (sched.time !== currentHM) return;
-        if (sched.lastTriggeredKey === triggerKey) return;
-
-        let shouldRun = false;
-        if (sched.recurrence === 'once') {
-          shouldRun = sched.date === todayYMD;
-        } else if (sched.recurrence === 'weekdays') {
-          shouldRun = dayOfWeek >= 1 && dayOfWeek <= 5 && todayYMD >= sched.date;
-        } else if (sched.recurrence === 'daily') {
-          shouldRun = todayYMD >= sched.date;
-        }
-
-        if (!shouldRun) return;
-
-        sched.lastTriggeredKey = triggerKey;
-        if (sched.recurrence === 'once') {
-          sched.active = false;
-        }
-        changed = true;
-
-        const [enginePart, voicePart] = (sched.voiceCode || 'ai:Kore').split(':');
-        const payload = {
-          type: 'BROADCAST_REQUEST',
-          id: `bc_sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          channel: state.channelCode,
-          timestamp: now.toLocaleTimeString('ko-KR'),
-          dept: sched.dept,
-          text: sched.text,
-          chime: sched.chime || 'standard',
-          repeat: sched.repeat || 1,
-          voiceEngine: enginePart === 'browser' ? 'browser' : 'ai',
-          aiVoice: enginePart === 'ai' ? (voicePart || 'Kore') : 'Kore',
-          aiStyle: sched.aiStyle || '',
-          browserVoiceURI: enginePart === 'browser' ? (voicePart || '') : '',
-          rate: 0.95,
-          pitch: 1.0
-        };
-
-        dispatchBroadcastPayload(payload, true);
-      });
-
-      if (changed) {
-        persistSchedules();
-        renderScheduledList();
-      }
-    }
-
-    // ==================== 8. NETWORKING ====================
-    function handleSenderIncomingData(data) {
-      if (!data) return;
-      if (data.type === 'BROADCAST_ACK') {
-        updateHistoryStatus(data.id, data.status);
-      }
-    }
-
-    function initLocalBroadcastChannel() {
-      if (state.localChannel) {
-        state.localChannel.close();
-      }
-      if (state.pingTimer) {
-        clearInterval(state.pingTimer);
-      }
-
-      if ('BroadcastChannel' in window) {
-        state.localChannel = new BroadcastChannel(`smart_school_pa_${state.channelCode}`);
-        state.localChannel.onmessage = (event) => {
-          const data = event.data;
-          if (!data || data.channel !== state.channelCode) return;
-
-          if (data.type === 'BROADCAST_REQUEST') {
-            if (state.mode === 'receiver') {
-              enqueueBroadcast(data);
-            }
-          } else if (data.type === 'STOP_BROADCAST') {
-            if (state.mode === 'receiver') {
-              handleStopBroadcastCommand(data, true);
-            }
-          } else if (data.type === 'BROADCAST_ACK') {
-            updateHistoryStatus(data.id, data.status);
-          } else if (data.type === 'RECEIVER_PING') {
-            state.receiverOnline = true;
-            updateSenderConnectionUI(true, '동일 PC 브라우저 탭 연결됨');
-          }
-        };
-
-        state.pingTimer = setInterval(() => {
-          if (state.mode === 'receiver' || state.mode === 'split') {
-            state.localChannel.postMessage({ type: 'RECEIVER_PING', channel: state.channelCode });
-          }
-        }, 3000);
-      }
-    }
-
-    function initNetworkPeers() {
-      cleanupPeers();
-
-      if (typeof Peer === 'undefined') {
-        updateSenderConnectionUI(false, '오프라인 모드 (로컬 탭 통신만 지원)');
-        return;
-      }
-
-      const receiverPeerId = `smart-school-pa-rx-${state.channelCode.toLowerCase()}`;
-
-      // 1. Receiver Peer (Claims fixed channel ID when opened on Broadcast Room PC)
-      try {
-        const rxPeer = new Peer(receiverPeerId, { debug: 0 });
-        state.receiverPeer = rxPeer;
-
-        rxPeer.on('open', () => {
-          state.receiverOnline = true;
-          updateSenderConnectionUI(true, '방송실 수신 채널 온라인 (준비 완료)');
-        });
-
-        rxPeer.on('connection', (conn) => {
-          state.activeRxConnections.add(conn);
-          conn.on('close', () => state.activeRxConnections.delete(conn));
-          conn.on('error', () => state.activeRxConnections.delete(conn));
-
-          conn.on('data', (data) => {
-            if (!data) return;
-            if (data.type === 'BROADCAST_REQUEST') {
-              enqueueBroadcast(data);
-              try {
-                conn.send({ type: 'BROADCAST_ACK', id: data.id, status: '방송실 수신 완료' });
-              } catch (e) {}
-            } else if (data.type === 'STOP_BROADCAST') {
-              handleStopBroadcastCommand(data, true);
-            }
-          });
-        });
-
-        rxPeer.on('error', () => {});
-      } catch (e) {}
-
-      // 2. Sender Peer (Connects to Broadcast Room PC)
-      try {
-        const txPeer = new Peer({ debug: 0 });
-        state.senderPeer = txPeer;
-
-        txPeer.on('open', () => {
-          connectSenderToReceiver(receiverPeerId);
-        });
-
-        txPeer.on('error', (err) => {
-          if (err.type === 'peer-unavailable') {
-            state.receiverOnline = false;
-            updateSenderConnectionUI(false, '방송실 PC 대기 중 (채널 코드 확인 필요)');
-          }
-        });
-      } catch (e) {}
-    }
-
-    function connectSenderToReceiver(receiverPeerId) {
-      if (!state.senderPeer || state.senderPeer.destroyed) return;
-
-      const conn = state.senderPeer.connect(receiverPeerId, { reliable: true });
-      state.senderConn = conn;
-
-      conn.on('open', () => {
-        state.receiverOnline = true;
-        updateSenderConnectionUI(true, '방송실 음향 PC와 실시간 연결됨');
-      });
-
-      conn.on('data', handleSenderIncomingData);
-
-      conn.on('close', () => {
-        state.receiverOnline = false;
-        updateSenderConnectionUI(false, '방송실 PC와 연결이 끊어졌습니다.');
-      });
-    }
-
-    function sendAckToSender(broadcastId, status) {
-      updateHistoryStatus(broadcastId, status);
-      const ackPacket = {
-        type: 'BROADCAST_ACK',
-        channel: state.channelCode,
-        id: broadcastId,
-        status: status
-      };
-
-      if (state.localChannel) {
-        try {
-          state.localChannel.postMessage(ackPacket);
-        } catch (e) {}
-      }
-
-      state.activeRxConnections.forEach((conn) => {
-        if (conn && conn.open) {
-          try {
-            conn.send(ackPacket);
-          } catch (e) {}
-        }
-      });
-    }
-
-    function updateSenderConnectionUI(isConnected, message) {
-      const dot = document.getElementById('sender-status-dot');
-      const badge = document.getElementById('sender-conn-badge');
-      const desc = document.getElementById('sender-conn-desc');
-
-      if (isConnected) {
-        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-[#3B7A57] ring-4 ring-[#3B7A57]/20';
-        if (badge) {
-          badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E6F2EC] text-[#3B7A57] border border-[#3A2E25]';
-          badge.textContent = '방송실 연결됨';
-        }
-      } else {
-        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 ring-4 ring-amber-200/70';
-        if (badge) {
-          badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-[#3A2E25]';
-          badge.textContent = '방송실 대기 중';
-        }
-      }
-      if (desc && message) desc.textContent = message;
-    }
-
-    function cleanupPeers() {
-      state.activeRxConnections.clear();
-      if (state.senderConn) {
-        try { state.senderConn.close(); } catch (e) {}
-        state.senderConn = null;
-      }
-      if (state.senderPeer) {
-        try { state.senderPeer.destroy(); } catch (e) {}
-        state.senderPeer = null;
-      }
-      if (state.receiverPeer) {
-        try { state.receiverPeer.destroy(); } catch (e) {}
-        state.receiverPeer = null;
-      }
-    }
-
-    function reconnectNetwork() {
-      updateSenderConnectionUI(false, '방송실 연결을 다시 확인하는 중...');
-      initLocalBroadcastChannel();
-      initNetworkPeers();
-    }
-
-    // ==================== 9. UTILITIES & INIT ====================
-    function copyTextToClipboard(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      try {
-        document.execCommand('copy');
-      } catch (e) {}
-      document.body.removeChild(textarea);
-    }
-
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
-    function showToast(message, type = 'info') {
-      const container = document.getElementById('toast-container');
-      if (!container) return;
-
-      const styles = {
-        success: 'bg-[#FAF8F3] text-[#2B2623] border-[#3A2E25]',
-        error: 'bg-[#FDECEC] text-[#2B2623] border-[#B9382C]',
-        info: 'bg-[#FAF8F3] text-[#2B2623] border-[#7C5638]'
-      };
-      const iconNames = {
-        success: 'check-circle-2',
-        error: 'alert-circle',
-        info: 'info'
-      };
-      const iconColors = {
-        success: 'text-[#3B7A57]',
-        error: 'text-[#B9382C]',
-        info: 'text-[#7C5638]'
-      };
-
-      const toast = document.createElement('div');
-      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border-2 text-xs sm:text-sm font-bold transition-all duration-300 ${styles[type] || styles.info}`;
-      toast.innerHTML = `
-        <i data-lucide="${iconNames[type] || 'info'}" class="w-4 h-4 shrink-0 ${iconColors[type] || 'text-[#7C5638]'}"></i>
-        <span class="leading-snug">${escapeHtml(message)}</span>
-      `;
-      container.appendChild(toast);
-      lucide.createIcons();
-
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(8px)';
-        setTimeout(() => toast.remove(), 300);
-      }, 3200);
-    }
-
-    window.onload = function () {
-      loadSavedSettings();
-      applyUrlQueryOverrides();
-      registerDynamicManifest();
-      syncChannelDisplays();
-
-      renderTemplates();
-      renderScheduledList();
-      renderSenderHistory();
-      refreshSenderLiveBannerFromHistory();
-      toggleVoiceEngineUI();
-      switchMode(state.mode);
-
-      const broadcastInput = document.getElementById('broadcast-text');
-      if (broadcastInput) {
-        broadcastInput.addEventListener('input', updateCharCount);
-      }
-
-      loadBrowserVoices();
-      startLiveClock();
-      initLocalBroadcastChannel();
-      initNetworkPeers();
-
-      if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-      }
-    };
-  </script>
-</body>
-</html>
+// ... existing code ... -->
