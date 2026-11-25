@@ -403,6 +403,23 @@
             </div>
           </div>
 
+          <!-- [v3] 음성 파일 제작 상태 안내 -->
+          <div id="speech-prep-status" role="status" aria-live="polite"
+            class="hidden mt-3 rounded-xl border px-3 py-2 text-xs sm:text-sm font-semibold">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span id="speech-prep-text"></span>
+              <span class="flex flex-wrap items-center gap-3">
+                <button type="button" id="btn-prep-retry" onclick="requestSpeechPrep()"
+                  class="hidden underline underline-offset-2 font-bold">다시 만들기</button>
+                <button type="button" id="btn-send-now-browser" onclick="sendBroadcast({ immediate: true })"
+                  class="hidden underline underline-offset-2 font-bold">기다리지 않고 PC 음성으로 바로 송출(긴급)</button>
+              </span>
+            </div>
+            <div id="speech-prep-bar-wrap" class="hidden mt-2 h-1.5 w-full rounded-full overflow-hidden" style="background: rgba(0,0,0,0.08);">
+              <div id="speech-prep-bar" style="height:100%; width:0%; background:#7C5638; transition: width .4s ease;"></div>
+            </div>
+          </div>
+
           <!-- Action Buttons -->
           <div class="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-end gap-2.5 pt-3">
             <button type="button" onclick="clearBroadcastText()"
@@ -808,6 +825,7 @@
      * - 교무실 PC(송출) <-> 방송실 PC(수신/앰프) 실시간 WebRTC + BroadcastChannel 연동
      * - Gemini 2.5 TTS AI 성우 11종 + Windows/Edge 다중 성우 및 음향 프로필 매칭
      * - Tone.js 합성 차임벨 + 예약 방송 스케줄러 + 긴급 원격 중단
+     * - [방송안정성 v2] 문장 단위 스트리밍 TTS, 차임벨·음성 동시 준비, 중복 방송 3중 차단, 수신 역할 단일화
      * ============================================================================
      */
 
@@ -816,7 +834,8 @@
       API_KEY: 'sjths_pa_gemini_api_key',
       SCHEDULES: 'sjths_pa_schedules_v1',
       HISTORY: 'sjths_pa_history_v1',
-      CUSTOM_TEMPLATES: 'sjths_pa_custom_templates_v1'
+      CUSTOM_TEMPLATES: 'sjths_pa_custom_templates_v1',
+      MODE: 'sjths_pa_mode_v1'
     };
 
     const MALE_AI_VOICES = ['Charon', 'Orus', 'Achird', 'Iapetus', 'Fenrir', 'Puck'];
@@ -903,12 +922,39 @@
       activeRxConnections: new Set(),
       senderPeer: null,
       senderConn: null,
+      senderConnPending: false,
       localChannel: null,
       receiverOnline: false,
-      preparedSpeechCache: new Map(),
       speechPrepareTimer: null,
       isProcessingQueue: false,
-      receivedBroadcastIds: new Set()
+      receivedBroadcastIds: new Set(),
+      // ---- [안정화] 추가 상태 ----
+      networkStarted: false,
+      ownsReceiverPeer: false,     // 이 화면이 네트워크상 '방송실 수신기' ID를 점유 중인지
+      rxRetryTimer: null,
+      rxClaimTimer: null,
+      lastTakeoverRequestAt: 0,
+      isReceiverLeader: false,     // 같은 브라우저의 여러 탭 중 실제로 소리를 내는 탭인지
+      leaderLockRelease: null,
+      leaderLockRequested: false,
+      recentContentLog: [],        // 같은 내용이 짧은 시간에 두 번 들어오는 것을 차단
+      lastSent: { text: '', at: 0 },
+      pendingAcks: new Map(),
+      audioCtx: null,
+      speechBus: null,
+      activeSources: new Set(),
+      ttsChunkCache: new Map(),
+      ttsRequestLog: [],
+      ttsCooldownUntil: 0,
+      preparedSchedules: new Set(),
+      // ---- [v3] 송출 전 음성 파일 제작 상태 ----
+      speechPrep: { key: '', status: 'idle', done: 0, total: 0, message: '', route: '', sentAt: 0, startedAt: 0, lastStatusAt: 0, retryAt: 0, textLength: 0, noKey: false },
+      prepJobs: new Map(),          // [v3.1] 방송실 측: 제작 작업 상태(같은 요청이 다시 와도 중복 제작하지 않고 현재 진행 상황만 회신)
+      prepPollTimer: null,          // [v3.1] 송신 측: 제작 중 진행 상황 재확인(회신 유실·재연결 대비)
+      lastPrepRouteRestartAt: 0,
+      prepWatchdog: null,
+      prepTotalTimer: null,
+      prepRetryTimer: null
     };
 
     function safeCreateIcons() {
@@ -924,6 +970,9 @@
       try {
         const savedChannel = localStorage.getItem(STORAGE_KEYS.CHANNEL);
         if (savedChannel) state.channelCode = savedChannel;
+
+        const savedMode = localStorage.getItem(STORAGE_KEYS.MODE);
+        if (savedMode && ['sender', 'receiver', 'split'].includes(savedMode)) state.mode = savedMode;
 
         const savedKey = localStorage.getItem(STORAGE_KEYS.API_KEY);
         if (savedKey) state.customApiKey = savedKey;
@@ -1003,7 +1052,15 @@
 
     // ==================== 3. UI & NAVIGATION ====================
     function switchMode(mode) {
+      const prevMode = state.mode;
       state.mode = mode;
+      try { localStorage.setItem(STORAGE_KEYS.MODE, mode); } catch (e) {}
+      if (state.networkStarted && prevMode !== mode) {
+        if (mode === 'sender') releaseReceiverLeadership();
+        else acquireReceiverLeadership();
+        reconnectNetwork();
+      }
+      updateReceiverRoleNotice();
 
       ['sender', 'receiver', 'split'].forEach((m) => {
         const tab = document.getElementById(`tab-${m}`);
@@ -1351,194 +1408,485 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       const koVoices = state.voices.filter(v => v.lang && v.lang.toLowerCase().includes('ko'));
       if (koVoices.length > 0) {
         if (profile && Array.isArray(profile.keywords)) {
+          // 같은 성우 키워드라면 Edge의 'Online (Natural)' 신경망 음성을 우선
+          for (const kw of profile.keywords) {
+            const natural = koVoices.find(v => v.name.toLowerCase().includes(kw) && /natural/i.test(v.name));
+            if (natural) return natural;
+          }
           for (const kw of profile.keywords) {
             const matched = koVoices.find(v => v.name.toLowerCase().includes(kw));
             if (matched) return matched;
           }
         }
-        // Prefer localService voices (e.g., Microsoft Heami) over cloud 'Google 한국의' because Google TTS ignores pitch changes
-        const localVoice = koVoices.find(v => v.localService);
-        if (localVoice) return localVoice;
-
-        return koVoices.find(v => /natural|online|heami|sunhi|injoon|google/i.test(v.name)) || koVoices[0];
+        // 자연스러움 우선순위: Edge 신경망(Natural) > 온라인 음성 > Google 한국의 > 로컬(Heami 등)
+        return koVoices.find(v => /natural/i.test(v.name))
+          || koVoices.find(v => /online/i.test(v.name))
+          || koVoices.find(v => /google/i.test(v.name))
+          || koVoices.find(v => v.localService)
+          || koVoices[0];
       }
       return state.voices[0] || null;
     }
 
-    function pcm16ToWavBlob(base64Pcm, sampleRate = 24000, channels = 1) {
-      const binaryStr = atob(base64Pcm);
-      const pcmLength = binaryStr.length;
-      channels = Math.max(1, Math.min(2, Number(channels) || 1));
-      const bytesPerSample = 2;
-      const blockAlign = channels * bytesPerSample;
-      const wavBuffer = new ArrayBuffer(44 + pcmLength);
-      const view = new DataView(wavBuffer);
+    // ==================== [안정화] AI TTS 엔진 ====================
+    // 1) 원고를 문장 단위로 나눠 '첫 문장'을 먼저 생성 → 차임벨이 끝나자마자 바로 멘트 시작
+    // 2) 나머지 문장은 병렬로 생성하면서 앞 문장이 재생되는 동안 이어 붙임(Web Audio 무간격 스케줄링)
+    // 3) 문장별 음량 정규화 + 앞뒤 무음 정리 + 페이드 → 문장 사이가 매끄럽고 음량이 일정
+    // 4) 문장 단위 캐시 → 미리 생성된 문장은 즉시 재생, 반복 방송은 재생성 없이 재생
+    // 5) 첫 음성이 제한 시간 안에 준비되지 않거나 API 한도(429)에 걸리면 PC 음성으로 즉시 대체
+    const TTS_CONFIG = {
+      MODEL: 'gemini-2.5-flash-preview-tts',
+      CHUNKING: true,
+      // [v3] 송출 전에 음성 파일을 '전부' 만들어 두는 방식이므로 첫 조각을 짧게 자를 필요가 없습니다.
+      //      조각을 크게 잡으면 요청 수가 줄고(무료 한도 보호) 문장 사이 억양도 더 자연스럽게 이어집니다.
+      FIRST_CHUNK_MAX: 240,         // 첫 조각 최대 글자 수
+      CHUNK_MAX: 240,               // 이후 조각 최대 글자 수
+      MAX_CHUNKS: 4,                // 한 방송당 최대 API 요청 수
+      REQUEST_TIMEOUT_MS: 25000,
+      FIRST_AUDIO_DEADLINE_MS: 9000,// 방송 시작 후 이 시간 안에 AI 음성이 없으면 PC 음성으로 대체
+      FALLBACK_TO_BROWSER: true,
+      SENTENCE_GAP_SEC: 0.32,       // 조각 사이 자연스러운 호흡
+      PRELOAD_DEBOUNCE_MS: 1200,    // 문장이 끝난 상태(마침표·'~다/요')에서 입력을 멈춘 뒤 음성 제작 시작까지 대기
+      PRELOAD_DEBOUNCE_INCOMPLETE_MS: 3500, // 문장이 아직 끝나지 않은 상태에서 입력을 멈춘 경우(헛요청 방지)
+      PREP_RESPONSE_TIMEOUT_MS: 7000,  // 방송실 PC가 음성 제작 요청에 응답해야 하는 시간
+      PREP_TOTAL_TIMEOUT_MS: 45000,    // 음성 제작이 이 시간을 넘기면 실패로 처리(PC 음성 송출·다시 만들기 안내)
+      PREP_POLL_MS: 2500,              // [v3.1] 제작 중 방송실 PC에 진행 상황을 다시 묻는 간격
+      PREP_STALE_MS: 12000,            // [v3.1] 이 시간 동안 방송실 회신이 끊기면 '응답 없음'으로 전환
+      PRELOAD_RPM_BUDGET: 6,        // 1분간 미리 생성에 쓸 최대 요청 수(무료 등급 한도 보호)
+      CACHE_LIMIT: 60,
+      TARGET_RMS: 0.085
+    };
 
-      const writeStr = (offset, str) => {
-        for (let i = 0; i < str.length; i++) {
-          view.setUint8(offset + i, str.charCodeAt(i));
-        }
-      };
+    const STYLE_DIRECTIONS = {
+      '정중하고 또렷한 학교 아나운서 톤으로 읽어주세요': 'in a polite, clear and composed school announcer tone, with steady pacing',
+      '밝고 친절하며 따뜻한 목소리로 읽어주세요': 'in a bright, kind and warm voice, friendly but not exaggerated',
+      '차분하고 신뢰감 있는 목소리로 읽어주세요': 'in a calm, trustworthy and gentle voice, slightly slower pacing',
+      '긴급하고 단호하며 또렷하게 읽어주세요': 'in an urgent, firm and very clear voice, but without shouting'
+    };
 
-      writeStr(0, 'RIFF');
-      view.setUint32(4, 36 + pcmLength, true);
-      writeStr(8, 'WAVE');
-      writeStr(12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, channels, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * blockAlign, true);
-      view.setUint16(32, blockAlign, true);
-      view.setUint16(34, 16, true);
-      writeStr(36, 'data');
-      view.setUint32(40, pcmLength, true);
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-      const bytes = new Uint8Array(wavBuffer, 44);
-      for (let i = 0; i < pcmLength; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      return new Blob([wavBuffer], { type: 'audio/wav' });
+    function normalizeAnnouncementText(text) {
+      return String(text || '')
+        .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\s*\n+\s*/g, ' ')
+        .trim();
     }
 
-    async function fetchGeminiTtsAudioUrl(text, voiceName = 'Kore', stylePrompt = '', overrideApiKey = '') {
+    function splitSentences(text) {
+      const clean = normalizeAnnouncementText(text);
+      if (!clean) return [];
+      const parts = clean.match(/[^.!?。…]+(?:[.!?。…]+["')\]]*|$)/g) || [clean];
+      return parts.map(s => s.trim()).filter(Boolean);
+    }
+
+    function splitIntoSpeechChunks(text) {
+      const clean = normalizeAnnouncementText(text);
+      if (!clean) return [];
+      if (!TTS_CONFIG.CHUNKING) return [clean];
+      const pieces = [];
+      splitSentences(clean).forEach((s) => {
+        if (s.length <= TTS_CONFIG.CHUNK_MAX) { pieces.push(s); return; }
+        // 너무 긴 문장은 쉼표 기준으로 분할
+        let cur = '';
+        s.split(/(?<=,)\s*/).forEach((part) => {
+          if (!cur) cur = part;
+          else if ((cur + ' ' + part).length <= TTS_CONFIG.CHUNK_MAX) cur += ' ' + part;
+          else { pieces.push(cur); cur = part; }
+        });
+        if (cur) pieces.push(cur);
+      });
+      const chunks = [];
+      let cur = '';
+      pieces.forEach((p) => {
+        const limit = chunks.length === 0 ? TTS_CONFIG.FIRST_CHUNK_MAX : TTS_CONFIG.CHUNK_MAX;
+        if (!cur) cur = p;
+        else if ((cur + ' ' + p).length <= limit) cur += ' ' + p;
+        else { chunks.push(cur); cur = p; }
+      });
+      if (cur) chunks.push(cur);
+      while (chunks.length > TTS_CONFIG.MAX_CHUNKS) {
+        const last = chunks.pop();
+        chunks[chunks.length - 1] += ' ' + last;
+      }
+      return chunks;
+    }
+
+    function buildTtsPrompt(text, stylePrompt) {
+      const direction = STYLE_DIRECTIONS[stylePrompt] || (stylePrompt ? `with this style: ${stylePrompt}` : STYLE_DIRECTIONS['정중하고 또렷한 학교 아나운서 톤으로 읽어주세요']);
+      return `Read the following Korean high school PA announcement aloud ${direction}. ` +
+        `Use natural Korean intonation, natural breathing and short pauses at commas and sentence ends. ` +
+        `Read only the transcript, word for word, without adding anything.\n\nTranscript:\n${text}`;
+    }
+
+    function getAudioContext() {
+      if (state.audioCtx && state.audioCtx.state !== 'closed') return state.audioCtx;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      let ctx;
+      try { ctx = new AC({ latencyHint: 'playback' }); } catch (e) { ctx = new AC(); }
+      const bus = ctx.createGain();
+      bus.gain.value = 1.0;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -16;
+      comp.knee.value = 10;
+      comp.ratio.value = 3;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.25;
+      bus.connect(comp);
+      comp.connect(ctx.destination);
+      state.audioCtx = ctx;
+      state.speechBus = bus;
+      return ctx;
+    }
+
+    async function ensureAudioContextRunning() {
+      const ctx = getAudioContext();
+      if (!ctx) return null;
+      if (ctx.state !== 'running') {
+        try { await Promise.race([ctx.resume(), sleep(1500)]); } catch (e) {}
+      }
+      return ctx;
+    }
+
+    function base64ToBytes(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    // 무음 정리 + 음량 정규화 + 페이드 인/아웃 (문장 사이 '툭' 끊김과 음량 차이 제거)
+    function processSpeechSamples(samples, sampleRate) {
+      const thr = 0.012;
+      const pad = Math.floor(sampleRate * 0.06);
+      let start = 0, end = samples.length - 1;
+      while (start < end && Math.abs(samples[start]) < thr) start++;
+      while (end > start && Math.abs(samples[end]) < thr) end--;
+      start = Math.max(0, start - pad);
+      end = Math.min(samples.length - 1, end + pad);
+      const out = samples.slice(start, end + 1);
+      if (out.length === 0) return samples;
+
+      let sum = 0, cnt = 0, peak = 0;
+      for (let i = 0; i < out.length; i++) {
+        const a = Math.abs(out[i]);
+        if (a > peak) peak = a;
+        if (a > 0.02) { sum += out[i] * out[i]; cnt++; }
+      }
+      const rms = cnt ? Math.sqrt(sum / cnt) : 0;
+      let gain = rms > 0 ? TTS_CONFIG.TARGET_RMS / rms : 1;
+      gain = Math.min(gain, 3.0);
+      if (peak * gain > 0.95) gain = 0.95 / peak;
+
+      const fade = Math.min(Math.floor(sampleRate * 0.015), Math.floor(out.length / 4));
+      for (let i = 0; i < out.length; i++) {
+        let g = gain;
+        if (i < fade) g *= i / fade;
+        else if (i > out.length - 1 - fade) g *= (out.length - 1 - i) / fade;
+        out[i] *= g;
+      }
+      return out;
+    }
+
+    async function inlineAudioToBuffer(inlineData) {
+      const ctx = getAudioContext();
+      if (!ctx) throw new Error('이 브라우저는 Web Audio를 지원하지 않습니다.');
+      const mime = inlineData.mimeType || inlineData.mime_type || '';
+      const bytes = base64ToBytes(inlineData.data);
+      if (/audio\/(wav|mpeg|mp3|ogg|aac|mp4)/i.test(mime)) {
+        return await ctx.decodeAudioData(bytes.buffer.slice(0));
+      }
+      // Gemini 기본 출력: audio/L16;codec=pcm;rate=24000 (16bit little-endian mono)
+      const rateMatch = mime.match(/rate=(\d+)/i);
+      const chMatch = mime.match(/channels=(\d+)/i);
+      const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+      const channels = Math.max(1, chMatch ? parseInt(chMatch[1], 10) : 1);
+      const view = new DataView(bytes.buffer);
+      const frameCount = Math.floor(bytes.length / 2 / channels);
+      const mono = new Float32Array(frameCount);
+      for (let i = 0; i < frameCount; i++) {
+        let v = 0;
+        for (let c = 0; c < channels; c++) v += view.getInt16((i * channels + c) * 2, true) / 32768;
+        mono[i] = v / channels;
+      }
+      const processed = processSpeechSamples(mono, sampleRate);
+      const buffer = ctx.createBuffer(1, processed.length, sampleRate);
+      buffer.copyToChannel ? buffer.copyToChannel(processed, 0) : buffer.getChannelData(0).set(processed);
+      return buffer;
+    }
+
+    function parseRetryDelayMs(errBody) {
+      try {
+        const details = errBody?.error?.details || [];
+        const info = details.find(d => String(d['@type'] || '').includes('RetryInfo'));
+        if (info && info.retryDelay) return Math.ceil(parseFloat(info.retryDelay) * 1000);
+      } catch (e) {}
+      return 30000;
+    }
+
+    async function fetchGeminiSpeechBuffer(text, voiceName = 'Kore', stylePrompt = '', overrideApiKey = '') {
       const apiKey = (overrideApiKey || state.customApiKey || '').trim();
       if (!apiKey) throw new Error('Gemini API 키가 없습니다. 설정에서 API 키를 입력해 주세요.');
+      if (Date.now() < state.ttsCooldownUntil) {
+        const err = new Error(`Gemini 음성 요청 한도 초과로 ${Math.ceil((state.ttsCooldownUntil - Date.now()) / 1000)}초간 대기 중입니다.`);
+        err.code = 'RATE_LIMIT';
+        throw err;
+      }
       let lastError;
       for (let attempt = 0; attempt < 2; attempt++) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        const timeoutId = setTimeout(() => controller.abort(), TTS_CONFIG.REQUEST_TIMEOUT_MS);
         try {
-          const promptText = stylePrompt ? `Style instructions: ${stylePrompt}. Read the following Korean school announcement exactly as written. Do not add or omit information. Text: ${text}` : `Read the following Korean school announcement exactly as written. Do not add or omit information. Text: ${text}`;
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`;
-          const response = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal, body:JSON.stringify({ contents:[{parts:[{text:promptText}]}], generationConfig:{responseModalities:['AUDIO'], speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voiceName || 'Kore'}}} } }) });
+          state.ttsRequestLog.push(Date.now());
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_CONFIG.MODEL}:generateContent`;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: buildTtsPrompt(text, stylePrompt) }] }],
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' } } }
+              }
+            })
+          });
           const data = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(data?.error?.message || `Gemini 음성 생성 오류 (${response.status})`);
+          if (response.status === 429) {
+            state.ttsCooldownUntil = Date.now() + parseRetryDelayMs(data);
+            const err = new Error('Gemini 음성 요청 한도(분당/일일)를 초과했습니다. 잠시 PC 음성으로 대체합니다.');
+            err.code = 'RATE_LIMIT';
+            throw err;
+          }
+          if (!response.ok) {
+            const err = new Error(data?.error?.message || `Gemini 음성 생성 오류 (${response.status})`);
+            err.retryable = response.status >= 500;
+            throw err;
+          }
           const parts = data?.candidates?.[0]?.content?.parts || [];
           const inlineData = parts.map(p => p.inlineData || p.inline_data).find(d => d?.data);
-          if (!inlineData) throw new Error('Gemini 응답에 음성 데이터가 없습니다. 모델 또는 API 키 권한을 확인해 주세요.');
-          const mime = inlineData.mimeType || inlineData.mime_type || '';
-          if (/audio\/(wav|mpeg|mp3|ogg|aac|mp4)/i.test(mime)) return `data:${mime};base64,${inlineData.data}`;
-          const rateMatch = mime.match(/rate=(\d+)/i);
-          const channelMatch = mime.match(/channels=(\d+)/i);
-          const sampleRate = rateMatch ? parseInt(rateMatch[1],10) : 24000;
-          const channels = channelMatch ? parseInt(channelMatch[1],10) : 1;
-          return URL.createObjectURL(pcm16ToWavBlob(inlineData.data, sampleRate, channels));
+          if (!inlineData) {
+            const err = new Error('Gemini 응답에 음성 데이터가 없습니다.');
+            err.retryable = true;
+            throw err;
+          }
+          return await inlineAudioToBuffer(inlineData);
         } catch (e) {
-          lastError = e.name === 'AbortError' ? new Error('Gemini 음성 생성 시간이 초과되었습니다. 네트워크 상태를 확인해 주세요.') : e;
-          if (attempt === 0) await new Promise(r => setTimeout(r, 800));
-        } finally { clearTimeout(timeoutId); }
+          lastError = e.name === 'AbortError' ? Object.assign(new Error('Gemini 음성 생성 시간이 초과되었습니다.'), { retryable: false }) : e;
+          if (e.code === 'RATE_LIMIT') throw e;
+          const retryable = e.retryable || e instanceof TypeError; // TypeError = 네트워크 오류
+          if (attempt === 0 && retryable) { await sleep(600); continue; }
+          throw lastError;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
       throw lastError || new Error('Gemini 음성을 생성하지 못했습니다.');
     }
 
-    async function prepareSpeechPlayer(text, options = {}) {
+    function getChunkCacheKey(chunkText, voice, style) {
+      return [TTS_CONFIG.MODEL, voice || 'Kore', style || '', chunkText].join('\u241f');
+    }
+
+    function getChunkAudio(chunkText, opts) {
+      const key = getChunkCacheKey(chunkText, opts.aiVoice, opts.aiStyle);
+      const cache = state.ttsChunkCache;
+      if (cache.has(key)) {
+        const hit = cache.get(key);
+        cache.delete(key);
+        cache.set(key, hit); // LRU 갱신
+        return hit.promise;
+      }
+      const entry = {};
+      entry.promise = fetchGeminiSpeechBuffer(chunkText, opts.aiVoice, opts.aiStyle, opts.apiKey)
+        .then((buf) => { entry.ready = true; return buf; })
+        .catch((err) => { cache.delete(key); throw err; });
+      entry.promise.catch(() => {});
+      cache.set(key, entry);
+      while (cache.size > TTS_CONFIG.CACHE_LIMIT) cache.delete(cache.keys().next().value);
+      return entry.promise;
+    }
+
+    function isChunkCached(chunkText, opts) {
+      return state.ttsChunkCache.has(getChunkCacheKey(chunkText, opts.aiVoice, opts.aiStyle));
+    }
+
+    function stopAllSpeechOutput() {
+      state.activeSources.forEach((src) => { try { src.stop(); } catch (e) {} });
+      state.activeSources.clear();
+      if (state.currentAudio) {
+        try { state.currentAudio.pause(); } catch (e) {}
+        state.currentAudio = null;
+      }
+      if ('speechSynthesis' in window) {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+    }
+
+    function createAiSpeechPlayer(text, options = {}) {
+      const opts = {
+        aiVoice: options.aiVoice || 'Kore',
+        aiStyle: options.aiStyle || '',
+        apiKey: options.apiKey || state.customApiKey || ''
+      };
+      const chunks = splitIntoSpeechChunks(text);
+      // 모든 조각을 즉시 병렬 요청(캐시된 조각은 요청 없이 재사용)
+      const promises = chunks.map(c => getChunkAudio(c, opts));
+      const firstReady = promises.length ? promises[0] : Promise.reject(new Error('방송 멘트가 비어 있습니다.'));
+      firstReady.catch(() => {});
+      let stopped = false;
+
+      return {
+        kind: 'ai',
+        chunks,
+        firstReady,
+        play: async (isAlive = () => true) => {
+          stopped = false;
+          const ctx = await ensureAudioContextRunning();
+          if (!ctx) throw new Error('오디오 장치를 사용할 수 없습니다.');
+          if (ctx.state !== 'running') throw new Error("오디오가 잠겨 있습니다. 방송실 PC에서 '음향 시스템 대기 시작' 버튼을 눌러 주세요.");
+          const alive = () => !stopped && isAlive();
+          let t = ctx.currentTime + 0.06;
+          for (let i = 0; i < promises.length; i++) {
+            let buf = null;
+            try {
+              buf = await promises[i];
+            } catch (err) {
+              if (i === 0) throw err;
+              // 중간 조각 실패 시 그 조각만 PC 음성으로 이어 읽어 방송이 끊기지 않게 함
+              console.warn('[TTS chunk fallback]', err);
+              await waitForAudioTime(ctx, t, alive);
+              if (!alive()) break;
+              await createBrowserSpeechPlayer(chunks[i], options).play(alive);
+              t = ctx.currentTime + TTS_CONFIG.SENTENCE_GAP_SEC;
+              continue;
+            }
+            if (!alive()) break;
+            if (t < ctx.currentTime + 0.03) t = ctx.currentTime + 0.06; // 생성이 늦어진 경우 짧은 호흡 후 이어서 재생
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(state.speechBus);
+            src.onended = () => state.activeSources.delete(src);
+            state.activeSources.add(src);
+            src.start(t);
+            t += buf.duration + (i < promises.length - 1 ? TTS_CONFIG.SENTENCE_GAP_SEC : 0);
+          }
+          await waitForAudioTime(ctx, t, alive);
+        },
+        stop: () => { stopped = true; stopAllSpeechOutput(); },
+        dispose: () => {}
+      };
+    }
+
+    async function waitForAudioTime(ctx, targetTime, alive) {
+      const wallDeadline = Date.now() + Math.max(0, targetTime - ctx.currentTime) * 1000 + 3000;
+      while (alive() && ctx.currentTime < targetTime && Date.now() < wallDeadline) {
+        await sleep(80);
+      }
+    }
+
+    function createBrowserSpeechPlayer(text, options = {}) {
       const engine = options.voiceEngine || 'ai';
       const aiVoice = options.aiVoice || 'Kore';
-      const aiStyle = options.aiStyle || '';
-      const apiKey = options.apiKey || state.customApiKey || '';
-      let audioUrl = null;
-
-      if (engine === 'ai') {
-        audioUrl = await fetchGeminiTtsAudioUrl(text, aiVoice, aiStyle, apiKey);
-      }
-
-      if (audioUrl) {
-        return {
-          play: () => new Promise((resolve, reject) => {
-            const audio = new Audio(audioUrl);
-            state.currentAudio = audio;
-            let settled = false;
-            let watchdog = null;
-            const finish = (error) => {
-              if (settled) return;
-              settled = true;
-              if (watchdog) clearTimeout(watchdog);
-              audio.onended = audio.onerror = null;
-              if (state.currentAudio === audio) state.currentAudio = null;
-              error ? reject(error) : resolve();
-            };
-            audio.onended = () => finish();
-            audio.onerror = () => finish(new Error('생성된 음성 파일을 재생하지 못했습니다. 방송실 PC의 오디오 출력 장치를 확인해 주세요.'));
-            // 일부 브라우저/오디오 장치에서 ended 이벤트가 누락되는 경우를 대비한 최종 안전장치
-            const fallbackMs = Math.min(8 * 60 * 1000, Math.max(60000, text.length * 800 + 30000));
-            watchdog = setTimeout(() => finish(new Error('음성 재생 완료 신호가 오지 않아 방송을 종료했습니다. 오디오 장치를 확인해 주세요.')), fallbackMs);
-            audio.onloadedmetadata = () => {
-              if (Number.isFinite(audio.duration) && audio.duration > 0) {
-                clearTimeout(watchdog);
-                watchdog = setTimeout(() => finish(new Error('음성 재생 완료 신호가 오지 않아 방송을 종료했습니다. 오디오 장치를 확인해 주세요.')), Math.min(8 * 60 * 1000, audio.duration * 1000 + 20000));
-              }
-            };
-            audio.play().catch(err => finish(new Error(`음성 재생 실패: ${err.message || err}`)));
-          }),
-          dispose: () => {
-            if (audioUrl && audioUrl.startsWith('blob:')) {
-              try { URL.revokeObjectURL(audioUrl); } catch (e) {}
-            }
-          }
-        };
-      }
-
-      // Fallback or explicit browser Web Speech API synthesis with distinct per-character acoustic profiles
       const rxSelect = document.getElementById('receiver-voice-select');
       const preferredURI = options.browserVoiceURI || (rxSelect ? rxSelect.value : '');
       const profile = engine === 'ai' ? (VOICE_PROFILES[aiVoice] || VOICE_PROFILES.Kore) : null;
-      const isVirtualMale = preferredURI === '__virtual_male__' ||
-        (engine === 'ai' && MALE_AI_VOICES.includes(aiVoice));
+      const isVirtualMale = preferredURI === '__virtual_male__' || (engine === 'ai' && MALE_AI_VOICES.includes(aiVoice));
 
       const matchedVoice = resolveKoreanBrowserVoice(preferredURI, profile);
       const sliderRate = parseFloat(options.rate) || 0.95;
       const sliderPitch = parseFloat(options.pitch) || 1.0;
-
       let finalRate = sliderRate;
       let finalPitch = sliderPitch;
       if (profile) {
-        const rateDelta = sliderRate - 0.95;
-        const pitchDelta = sliderPitch - 1.0;
-        finalRate = Math.min(1.45, Math.max(0.65, profile.rate + rateDelta));
-        finalPitch = Math.min(1.45, Math.max(0.55, profile.pitch + pitchDelta));
+        finalRate = Math.min(1.45, Math.max(0.65, profile.rate + (sliderRate - 0.95)));
+        finalPitch = Math.min(1.45, Math.max(0.55, profile.pitch + (sliderPitch - 1.0)));
       } else {
         finalRate = isVirtualMale ? Math.max(0.75, sliderRate * 0.96) : sliderRate;
         finalPitch = isVirtualMale ? Math.min(sliderPitch, 0.72) : sliderPitch;
       }
+      // 신경망(Natural) 음성은 피치를 크게 바꾸면 부자연스러워지므로 완만하게 적용
+      if (matchedVoice && /natural/i.test(matchedVoice.name)) {
+        finalPitch = 1 + (finalPitch - 1) * 0.35;
+      }
+      const sentences = splitSentences(text);
+      let stopped = false;
+
+      const speakOne = (sentence) => new Promise((resolve) => {
+        const synth = window.speechSynthesis;
+        const u = new SpeechSynthesisUtterance(sentence);
+        if (matchedVoice) u.voice = matchedVoice;
+        u.lang = 'ko-KR';
+        u.rate = finalRate;
+        u.pitch = finalPitch;
+        let settled = false;
+        let keepAlive = null;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(watchdog);
+          if (keepAlive) clearInterval(keepAlive);
+          resolve();
+        };
+        u.onend = finish;
+        u.onerror = finish;
+        const watchdog = setTimeout(() => { try { synth.cancel(); } catch (e) {} finish(); }, Math.max(8000, sentence.length * 450 + 6000));
+        // Chrome의 Google 음성은 약 15초 후 멈추는 버그가 있어 주기적으로 깨워 줌
+        if (matchedVoice && /google/i.test(matchedVoice.name)) {
+          keepAlive = setInterval(() => { if (synth.speaking) { synth.pause(); synth.resume(); } }, 9000);
+        }
+        synth.speak(u);
+      });
 
       return {
-        play: () => new Promise((resolve) => {
-          if (!('speechSynthesis' in window)) {
-            resolve();
-            return;
+        kind: 'browser',
+        firstReady: Promise.resolve(),
+        play: async (isAlive = () => true) => {
+          if (!('speechSynthesis' in window)) return;
+          stopped = false;
+          const synth = window.speechSynthesis;
+          if (synth.speaking || synth.pending) { synth.cancel(); await sleep(80); }
+          for (const s of sentences) {
+            if (stopped || !isAlive()) break;
+            await speakOne(s);
           }
-
-          if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-            window.speechSynthesis.cancel();
-          }
-
-          const utterance = new SpeechSynthesisUtterance(text);
-          if (matchedVoice) utterance.voice = matchedVoice;
-          utterance.lang = 'ko-KR';
-          utterance.rate = finalRate;
-          utterance.pitch = finalPitch;
-
-          let settled = false;
-          let watchdog = null;
-          const finish = () => {
-            if (settled) return;
-            settled = true;
-            if (watchdog) clearTimeout(watchdog);
-            utterance.onend = utterance.onerror = null;
-            resolve();
-          };
-          utterance.onend = finish;
-          utterance.onerror = finish;
-          // Web Speech API의 onend 누락으로 대기열이 멈추는 현상 방지
-          watchdog = setTimeout(() => {
-            try { window.speechSynthesis.cancel(); } catch (e) {}
-            finish();
-          }, Math.min(10 * 60 * 1000, Math.max(30000, text.length * 650 + 20000)));
-          window.speechSynthesis.speak(utterance);
-        }),
+        },
+        stop: () => { stopped = true; try { window.speechSynthesis.cancel(); } catch (e) {} },
         dispose: () => {}
       };
+    }
+
+    function createSpeechPlayer(text, options = {}) {
+      const engine = options.voiceEngine || 'ai';
+      const apiKey = options.apiKey || state.customApiKey || '';
+      if (engine === 'ai' && apiKey) return createAiSpeechPlayer(text, options);
+      return createBrowserSpeechPlayer(text, options);
+    }
+
+    // AI 음성의 첫 조각을 기다리되, 제한 시간을 넘기거나 실패하면 PC 음성 플레이어로 교체
+    async function resolvePlayableSpeech(text, options = {}, deadlineMs = TTS_CONFIG.FIRST_AUDIO_DEADLINE_MS) {
+      // [v3] 송신 측에서 'PC 음성으로 바로 송출'을 고른 경우 AI 음성을 기다리지 않음
+      if (options.forceBrowser) return { player: createBrowserSpeechPlayer(text, options), fallback: true };
+      const player = createSpeechPlayer(text, options);
+      if (player.kind !== 'ai') return { player, fallback: false };
+      const outcome = await Promise.race([
+        player.firstReady.then(() => 'ready', (err) => err),
+        sleep(deadlineMs).then(() => 'timeout')
+      ]);
+      if (outcome === 'ready') return { player, fallback: false };
+      const reason = outcome === 'timeout' ? 'AI 음성 생성이 지연되어' : `${outcome.message || 'AI 음성 오류'} -`;
+      if (!TTS_CONFIG.FALLBACK_TO_BROWSER) throw (outcome instanceof Error ? outcome : new Error(reason));
+      console.warn('[TTS fallback]', outcome);
+      showToast(`${reason} PC 음성으로 대신 방송합니다.`, 'info');
+      return { player: createBrowserSpeechPlayer(text, options), fallback: true };
+    }
+
+    // 기존 코드와의 호환용 (목소리 샘플 듣기 등)
+    async function prepareSpeechPlayer(text, options = {}) {
+      const { player } = await resolvePlayableSpeech(text, options, 20000);
+      return player;
     }
 
     async function testSelectedVoiceSample() {
@@ -1631,9 +1979,21 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         if (typeof Tone !== 'undefined') await Tone.start();
       } catch (e) {}
 
+      // AI 음성용 Web Audio 잠금 해제 (무음 버퍼 1회 재생)
+      try {
+        const ctx = await ensureAudioContextRunning();
+        if (ctx) {
+          const silentBuf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * 0.05)), ctx.sampleRate);
+          const src = ctx.createBufferSource();
+          src.buffer = silentBuf;
+          src.connect(ctx.destination);
+          src.start();
+        }
+      } catch (e) {}
+
       if ('speechSynthesis' in window) {
         try {
-          const silent = new SpeechSynthesisUtterance('');
+          const silent = new SpeechSynthesisUtterance(' ');
           silent.volume = 0;
           window.speechSynthesis.speak(silent);
         } catch (e) {}
@@ -1656,6 +2016,15 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       showToast('방송실 음향 시스템 대기 모드가 활성화되었습니다.', 'success');
     }
 
+    // 화면이 다시 보이거나 절전에서 돌아오면 화면 꺼짐 방지/오디오를 재활성화
+    document.addEventListener('visibilitychange', async () => {
+      if (document.hidden || !state.receiverAudioActivated) return;
+      try { await ensureAudioContextRunning(); } catch (e) {}
+      if ('wakeLock' in navigator && (!state.wakeLock || state.wakeLock.released)) {
+        try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+      }
+    });
+
     async function testReceiverSpeaker() {
       await activateReceiverAudio();
       enqueueBroadcast({
@@ -1674,69 +2043,368 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     }
 
     // ==================== 6. BROADCAST & QUEUE ====================
-    // 방송 버튼을 누르기 전에 수신 PC에서 Gemini 음성을 미리 생성해 둡니다.
-    // 음성 생성 대기와 차임벨 재생을 겹치지 않게 하여 차임벨과 멘트 사이의 긴 공백을 없앱니다.
-    function getSpeechCacheKey(payload) {
-      return [payload.text || '', payload.voiceEngine || 'ai', payload.aiVoice || 'Kore',
-        payload.aiStyle || '', payload.browserVoiceURI || '', payload.rate || 0.95,
-        payload.pitch || 1, payload.apiKey || ''].join('\u241f');
+    // [안정화] 입력을 멈추면 방송실(수신) 쪽에서 문장 단위로 AI 음성을 미리 생성합니다.
+    // 문장 단위 캐시라 일부만 고쳐도 바뀐 문장만 다시 생성하며, 분당 요청 예산을 넘기면 미리 생성을 건너뜁니다.
+    function isLocalReceiverActive() {
+      return state.mode !== 'sender' && state.isReceiverLeader;
     }
 
-    function sendPrepareSpeechPacket(payload) {
-      if (!payload || !payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
-      const packet = { type: 'PREPARE_BROADCAST', channel: state.channelCode, payload };
+    function shouldPlayLocally() {
+      // 통합(split) 모드: 이 화면이 방송실 역할을 맡고 있거나, 별도 방송실 PC가 연결되어 있지 않을 때만 직접 재생
+      if (!isLocalReceiverActive()) return false;
+      if (state.mode === 'receiver') return true;
+      const remoteOpen = !!(state.senderConn && state.senderConn.open);
+      return state.ownsReceiverPeer || !remoteOpen;
+    }
+
+    function canSpendPreloadRequests(n) {
+      const now = Date.now();
+      state.ttsRequestLog = state.ttsRequestLog.filter(t => now - t < 60000);
+      if (now < state.ttsCooldownUntil) return false;
+      return state.ttsRequestLog.length + n <= TTS_CONFIG.PRELOAD_RPM_BUDGET;
+    }
+
+    // ==================== [v3] 송출 전 음성 파일 제작(준비) 상태 관리 ====================
+    // 흐름: 멘트 입력 → (입력 멈춤) → 방송실 PC에 음성 제작 요청 → 방송실 PC가 진행 상황을 회신
+    //       → 모든 조각이 완성되면 송신 화면의 [즉시 교내 방송 송출] 버튼 활성화
+    // 실제로 소리를 내는 PC(방송실)의 준비 상태를 기준으로 하므로, 버튼이 켜지면 끊김 없이 재생됩니다.
+
+    function getPrepKey(p) {
+      return [p.voiceEngine || 'ai', p.aiVoice || 'Kore', p.aiStyle || '', normalizeAnnouncementText(p.text)].join('\u241f');
+    }
+
+    function requiresAiPrep(p) {
+      return !!(p && p.text && (p.voiceEngine || 'ai') === 'ai' && p.apiKey);
+    }
+
+    // ---------- 방송실(수신) 측 ----------
+    function sendPrepStatus(prepKey, info) {
+      if (prepKey) {
+        state.prepJobs.set(prepKey, { ...info, at: Date.now() });
+        while (state.prepJobs.size > 30) state.prepJobs.delete(state.prepJobs.keys().next().value);
+      }
+      const packet = { type: 'SPEECH_PREP_STATUS', channel: state.channelCode, prepKey, ...info };
       if (state.localChannel) {
         try { state.localChannel.postMessage(packet); } catch (e) {}
       }
-      if (state.senderConn && state.senderConn.open) {
-        try { state.senderConn.send(packet); } catch (e) {}
-      }
-    }
-
-    function scheduleSpeechPreload() {
-      if (state.mode === 'receiver') return;
-      if (state.speechPrepareTimer) clearTimeout(state.speechPrepareTimer);
-      state.speechPrepareTimer = setTimeout(() => {
-        const payload = collectComposerPayload();
-        if (!payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
-        sendPrepareSpeechPacket(payload);
-      }, 650);
-    }
-
-    function prepareSpeechOnReceiver(payload) {
-      if (!payload || !payload.text || payload.voiceEngine !== 'ai' || !payload.apiKey) return;
-      const key = getSpeechCacheKey(payload);
-      if (state.preparedSpeechCache.has(key)) return;
-      // 오래된 준비 작업은 최대 5개까지만 유지합니다.
-      if (state.preparedSpeechCache.size >= 5) {
-        const firstKey = state.preparedSpeechCache.keys().next().value;
-        const old = state.preparedSpeechCache.get(firstKey);
-        if (old && old.player) old.player.dispose();
-        state.preparedSpeechCache.delete(firstKey);
-      }
-      const entry = { player: null, promise: null, used: false };
-      entry.promise = prepareSpeechPlayer(payload.text, payload).then(player => {
-        entry.player = player;
-        return player;
-      }).catch(error => {
-        state.preparedSpeechCache.delete(key);
-        console.warn('[TTS preload]', error);
-        throw error;
+      state.activeRxConnections.forEach((conn) => {
+        if (conn && conn.open) {
+          try { conn.send(packet); } catch (e) {}
+        }
       });
-      // 선행 준비 중 오류는 미리 잡아 두고, 실제 방송 시 다시 명확하게 표시합니다.
-      entry.promise.catch(() => {});
-      state.preparedSpeechCache.set(key, entry);
+      if (state.mode !== 'receiver') handleSpeechPrepStatus(packet);
     }
 
-    async function getPreparedSpeechPlayer(payload) {
-      const key = getSpeechCacheKey(payload);
-      const entry = state.preparedSpeechCache.get(key);
-      if (entry) {
-        const player = entry.player || await entry.promise;
-        state.preparedSpeechCache.delete(key);
-        return player;
+    async function prepareSpeechOnReceiver(payload, prepKey) {
+      if (!payload || !payload.text) return;
+      prepKey = prepKey || getPrepKey(payload);
+      if (!requiresAiPrep(payload)) {
+        sendPrepStatus(prepKey, { status: 'ready', done: 1, total: 1 });
+        return;
       }
-      return await prepareSpeechPlayer(payload.text, payload);
+      const opts = { aiVoice: payload.aiVoice || 'Kore', aiStyle: payload.aiStyle || '', apiKey: payload.apiKey };
+      const chunks = splitIntoSpeechChunks(payload.text);
+      const total = chunks.length;
+      if (!total) return;
+      // [v3.1] 같은 멘트의 제작 요청이 다시 오면(진행 상황 재확인·재연결) 새로 만들지 않고 현재 상태만 회신
+      const job = state.prepJobs.get(prepKey);
+      if (job && job.status === 'preparing' && Date.now() - job.at < TTS_CONFIG.PREP_TOTAL_TIMEOUT_MS) {
+        sendPrepStatus(prepKey, { status: 'preparing', done: job.done || 0, total: job.total || total });
+        return;
+      }
+      if (job && job.status === 'ready' && chunks.every(c => isChunkCached(c, opts))) {
+        sendPrepStatus(prepKey, { status: 'ready', done: total, total });
+        return;
+      }
+      let done = 0;
+      sendPrepStatus(prepKey, { status: 'preparing', done, total });
+      try {
+        await Promise.all(chunks.map(c => getChunkAudio(c, opts).then(() => {
+          done++;
+          if (done < total) sendPrepStatus(prepKey, { status: 'preparing', done, total });
+        })));
+        sendPrepStatus(prepKey, { status: 'ready', done: total, total });
+      } catch (err) {
+        const retryAfterMs = err && err.code === 'RATE_LIMIT' ? Math.max(1000, state.ttsCooldownUntil - Date.now()) : 0;
+        console.warn('[TTS prepare]', err);
+        sendPrepStatus(prepKey, { status: 'error', done, total, message: (err && err.message) || 'AI 음성 생성 오류', retryAfterMs });
+      }
+    }
+
+    // ---------- 송신(교무실) 측 ----------
+    function getCurrentPrepRoute() {
+      if (shouldPlayLocally()) return 'local';
+      if (state.senderConn && state.senderConn.open) return 'remote';
+      if (state.localChannel && state.receiverOnline) return 'tab';
+      return 'none';
+    }
+
+    function sendPrepareSpeechPacket(payload, prepKey) {
+      if (!payload || !payload.text) return false;
+      prepKey = prepKey || getPrepKey(payload);
+      if (shouldPlayLocally()) {
+        prepareSpeechOnReceiver(payload, prepKey);
+        return true;
+      }
+      const packet = { type: 'PREPARE_BROADCAST', channel: state.channelCode, payload, prepKey };
+      let sent = false;
+      if (state.senderConn && state.senderConn.open) {
+        try { state.senderConn.send(packet); sent = true; } catch (e) {}
+      }
+      if (state.localChannel) {
+        try { state.localChannel.postMessage(packet); sent = true; } catch (e) {}
+      }
+      return sent;
+    }
+
+    function clearPrepTimers() {
+      ['prepWatchdog', 'prepTotalTimer', 'prepRetryTimer'].forEach((k) => {
+        if (state[k]) { clearTimeout(state[k]); state[k] = null; }
+      });
+      if (state.prepPollTimer) { clearInterval(state.prepPollTimer); state.prepPollTimer = null; }
+    }
+
+    function setPrepState(patch) {
+      Object.assign(state.speechPrep, patch);
+      renderSendButtonState();
+    }
+
+    function isPrepBlocking() {
+      const st = state.speechPrep.status;
+      return st === 'waiting' || st === 'preparing';
+    }
+
+    // 실제 음성 제작 요청 (입력 멈춤 후 자동 호출, 또는 [다시 만들기])
+    function requestSpeechPrep() {
+      if (state.mode === 'receiver') return;
+      if (state.speechPrepareTimer) { clearTimeout(state.speechPrepareTimer); state.speechPrepareTimer = null; }
+      clearPrepTimers();
+      const p = collectComposerPayload();
+      if (!p.text) { setPrepState({ key: '', status: 'idle' }); return; }
+      const key = getPrepKey(p);
+      if (!requiresAiPrep(p)) {
+        setPrepState({ key, status: 'ready-browser', noKey: (p.voiceEngine || 'ai') === 'ai' });
+        return;
+      }
+      const route = getCurrentPrepRoute();
+      const prev = state.speechPrep;
+      // [v3.1] 같은 멘트를 다시 요청(경로 변경 등)해도 경과 시간은 처음 시작 시각 기준으로 유지
+      const startedAt = (prev.key === key && prev.status === 'preparing' && prev.startedAt) ? prev.startedAt : Date.now();
+      setPrepState({
+        key, status: 'preparing', done: 0, total: splitIntoSpeechChunks(p.text).length,
+        message: '', route, sentAt: Date.now(), startedAt, lastStatusAt: 0, retryAt: 0, textLength: p.text.length
+      });
+      if (route === 'none' || !sendPrepareSpeechPacket(p, key)) {
+        setPrepState({ status: 'offline' });
+        return;
+      }
+      state.prepWatchdog = setTimeout(() => {
+        const sp = state.speechPrep;
+        if (sp.key === key && sp.status === 'preparing' && !sp.lastStatusAt) {
+          clearPrepTimers();
+          setPrepState({ status: 'noresponse' });
+        }
+      }, TTS_CONFIG.PREP_RESPONSE_TIMEOUT_MS);
+      // [v3.1] 제작 중에는 주기적으로 진행 상황을 다시 물어봄 → '완료' 회신이 유실돼도 버튼이 영원히 잠기지 않음
+      state.prepPollTimer = setInterval(() => {
+        const sp = state.speechPrep;
+        if (sp.key !== key || sp.status !== 'preparing') {
+          clearInterval(state.prepPollTimer); state.prepPollTimer = null;
+          return;
+        }
+        if (sp.lastStatusAt && Date.now() - sp.lastStatusAt > TTS_CONFIG.PREP_STALE_MS) {
+          clearPrepTimers();
+          setPrepState({ status: 'noresponse' });
+          return;
+        }
+        const cur = collectComposerPayload();
+        if (getPrepKey(cur) === key) sendPrepareSpeechPacket(cur, key);
+      }, TTS_CONFIG.PREP_POLL_MS);
+      const remainMs = Math.max(3000, TTS_CONFIG.PREP_TOTAL_TIMEOUT_MS - (Date.now() - startedAt));
+      state.prepTotalTimer = setTimeout(() => {
+        const sp = state.speechPrep;
+        if (sp.key === key && sp.status === 'preparing') {
+          clearPrepTimers();
+          setPrepState({ status: 'error', message: '음성 제작 시간이 너무 오래 걸립니다. PC 음성으로 송출하거나 [다시 만들기]를 눌러 주세요.', retryAt: 0 });
+        }
+      }, remainMs);
+    }
+
+    // 방송실 PC가 보내온 제작 진행 상황 반영
+    function handleSpeechPrepStatus(packet) {
+      const sp = state.speechPrep;
+      if (!packet || packet.prepKey !== sp.key) return;   // 이미 내용이 바뀐 이전 멘트의 회신은 무시
+      if (sp.status === 'ready' && packet.status !== 'ready') return;
+      if (sp.status === 'waiting') return;                // 사용자가 다시 입력 중
+      // [v3.1] 긴급 송출 후에는 진행 표시를 다시 띄우지 않음(완성 소식만 반영)
+      if (sp.status === 'urgent-sent' && packet.status !== 'ready') return;
+      sp.lastStatusAt = Date.now();
+      if (packet.status === 'ready') {
+        clearPrepTimers();
+        setPrepState({ status: 'ready', done: packet.total || 1, total: packet.total || 1, message: '' });
+      } else if (packet.status === 'preparing') {
+        const prevDone = sp.status === 'preparing' ? (sp.done || 0) : 0;
+        setPrepState({ status: 'preparing', done: Math.max(prevDone, packet.done || 0), total: packet.total || sp.total || 1 });
+      } else if (packet.status === 'error') {
+        clearPrepTimers();
+        const retryAfter = packet.retryAfterMs || 0;
+        setPrepState({ status: 'error', message: packet.message || '', retryAt: retryAfter ? Date.now() + retryAfter + 800 : 0 });
+        if (retryAfter) {
+          const key = sp.key;
+          state.prepRetryTimer = setTimeout(() => {
+            if (state.speechPrep.key === key && state.speechPrep.status === 'error') requestSpeechPrep();
+          }, retryAfter + 800);
+        }
+      }
+    }
+
+    // 멘트·성우 설정이 바뀔 때마다 호출: 버튼을 잠그고, 입력이 멈추면 음성 제작 시작
+    function scheduleSpeechPreload(immediate) {
+      if (state.mode === 'receiver') return;
+      if (state.speechPrepareTimer) { clearTimeout(state.speechPrepareTimer); state.speechPrepareTimer = null; }
+      const p = collectComposerPayload();
+      if (!p.text) { clearPrepTimers(); setPrepState({ key: '', status: 'idle' }); return; }
+      const key = getPrepKey(p);
+      if (!requiresAiPrep(p)) {
+        clearPrepTimers();
+        setPrepState({ key, status: 'ready-browser', noKey: (p.voiceEngine || 'ai') === 'ai' });
+        return;
+      }
+      const sp = state.speechPrep;
+      if (sp.key === key && (sp.status === 'ready' || sp.status === 'preparing' || sp.status === 'urgent-sent')) return; // 같은 멘트는 다시 만들지 않음
+      clearPrepTimers();
+      setPrepState({ key, status: 'waiting', done: 0, total: 0, message: '', retryAt: 0 });
+      const trimmed = p.text.trim();
+      const looksComplete = /([.!?。…]["')\]]*|[다요까죠])$/.test(trimmed);
+      const delay = immediate === true ? 0 : (looksComplete ? TTS_CONFIG.PRELOAD_DEBOUNCE_MS : TTS_CONFIG.PRELOAD_DEBOUNCE_INCOMPLETE_MS);
+      state.speechPrepareTimer = setTimeout(requestSpeechPrep, delay);
+    }
+
+    // 방송실 연결 상태가 바뀌면(연결됨/경로 변경) 음성 제작을 다시 요청
+    function onPrepRouteMaybeChanged() {
+      if (state.mode === 'receiver') return;
+      const sp = state.speechPrep;
+      if (!sp.key || sp.status === 'idle' || sp.status === 'ready-browser' || sp.status === 'waiting' || sp.status === 'urgent-sent') return;
+      const route = getCurrentPrepRoute();
+      if (route === 'none') return;
+      const needRestart = sp.status === 'offline' || sp.status === 'noresponse' || sp.route !== route;
+      if (!needRestart) return;
+      // [v3.1] 연결 확인 신호(PING/PONG)가 올 때마다 제작을 처음부터 다시 시작하던 문제 방지
+      if (Date.now() - state.lastPrepRouteRestartAt < 5000) return;
+      state.lastPrepRouteRestartAt = Date.now();
+      requestSpeechPrep();
+    }
+
+    function renderSendButtonState() {
+      const btn = document.getElementById('btn-send-broadcast');
+      if (!btn) return;
+      const label = btn.querySelector('span');
+      const box = document.getElementById('speech-prep-status');
+      const txt = document.getElementById('speech-prep-text');
+      const barWrap = document.getElementById('speech-prep-bar-wrap');
+      const bar = document.getElementById('speech-prep-bar');
+      const quick = document.getElementById('btn-send-now-browser');
+      const retry = document.getElementById('btn-prep-retry');
+      const sp = state.speechPrep;
+
+      let disabled = false;
+      let labelText = '즉시 교내 방송 송출';
+      let msg = '';
+      let tone = null; // 'info' | 'ok' | 'warn' | 'err'
+      let showQuick = false;
+      let showRetry = false;
+      let pct = null;
+
+      switch (sp.status) {
+        case 'waiting':
+          disabled = true;
+          labelText = '멘트 음성 파일 제작 대기 중…';
+          msg = '입력을 마치면 방송실 PC에서 AI 음성 파일을 만듭니다.';
+          tone = 'info'; showQuick = true; pct = 0;
+          break;
+        case 'preparing': {
+          disabled = true;
+          const total = Math.max(1, sp.total || 1);
+          const done = Math.min(total, sp.done || 0);
+          const since = sp.startedAt || sp.sentAt || Date.now();
+          const elapsedSec = Math.max(0, Math.floor((Date.now() - since) / 1000));
+          labelText = total > 1 ? `멘트 음성 파일 제작 중… (${done}/${total})` : '멘트 음성 파일 제작 중…';
+          msg = `방송실 PC에서 AI 음성 파일을 만들고 있습니다. 완료되면 송출 버튼이 켜집니다. (${elapsedSec}초 경과)`;
+          const expectedMs = 3000 + (sp.textLength || 60) * 35;
+          const timePct = Math.min(90, ((Date.now() - since) / expectedMs) * 100);
+          pct = Math.max(5, (done / total) * 100, timePct);
+          tone = 'info'; showQuick = true;
+          break;
+        }
+        case 'ready':
+          msg = '음성 파일 준비 완료 · 송출하면 차임벨 직후 끊김 없이 방송됩니다.';
+          tone = 'ok'; pct = 100;
+          break;
+        case 'ready-browser':
+          msg = sp.noKey
+            ? 'Gemini API 키가 없어 PC 내장 음성으로 방송합니다. (음성 파일 제작 없이 바로 송출)'
+            : 'PC 내장 음성으로 방송합니다. (음성 파일 제작 없이 바로 송출)';
+          tone = 'info';
+          break;
+        case 'error': {
+          labelText = 'PC 음성으로 즉시 송출';
+          const remain = sp.retryAt ? Math.ceil((sp.retryAt - Date.now()) / 1000) : 0;
+          msg = `AI 음성 제작 실패: ${sp.message || '알 수 없는 오류'}` + (remain > 0 ? ` · ${remain}초 후 자동으로 다시 만듭니다.` : '');
+          tone = 'err'; showRetry = true;
+          break;
+        }
+        case 'urgent-sent':
+          labelText = 'AI 음성 파일 만들기';
+          msg = 'PC 음성으로 긴급 송출했습니다. 같은 멘트를 AI 음성으로 다시 송출하려면 [AI 음성 파일 만들기]를 눌러 주세요.';
+          tone = 'info';
+          break;
+        case 'noresponse':
+          msg = '방송실 PC가 음성 제작 요청에 응답하지 않습니다. 방송실 화면이 새 버전으로 열려 있고 [음향 시스템 대기 시작]을 눌렀는지 확인해 주세요.';
+          tone = 'warn'; showRetry = true;
+          break;
+        case 'offline':
+          msg = '방송실 PC와 연결되면 음성 파일을 자동으로 만듭니다.';
+          tone = 'warn';
+          break;
+        default:
+          break;
+      }
+
+      if (state.isDispatching) {
+        disabled = true;
+        labelText = '방송실로 전송 중…';
+        showQuick = false;
+      }
+
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? '0.55' : '';
+      btn.style.pointerEvents = disabled ? 'none' : '';
+      btn.style.cursor = disabled ? 'not-allowed' : '';
+      btn.setAttribute('aria-busy', disabled ? 'true' : 'false');
+      if (label) label.textContent = labelText;
+
+      if (box) {
+        const palette = {
+          info: ['#F4EFE6', '#5C432E', '#D9CBB4'],
+          ok: ['#E6F2EC', '#2F6B4A', '#B7D7C4'],
+          warn: ['#FEF3C7', '#7C4A03', '#F2D58A'],
+          err: ['#FDECEC', '#9B2C2C', '#F1BDBD']
+        };
+        if (!tone || !msg) {
+          box.classList.add('hidden');
+        } else {
+          const [bg, fg, bd] = palette[tone];
+          box.classList.remove('hidden');
+          box.style.background = bg;
+          box.style.color = fg;
+          box.style.borderColor = bd;
+        }
+      }
+      if (txt) txt.textContent = msg;
+      if (barWrap) barWrap.classList.toggle('hidden', pct === null || tone === 'ok');
+      if (bar && pct !== null) bar.style.width = `${Math.round(pct)}%`;
+      if (quick) quick.classList.toggle('hidden', !showQuick);
+      if (retry) retry.classList.toggle('hidden', !showRetry);
     }
 
     function collectComposerPayload() {
@@ -1767,38 +2435,101 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       };
     }
 
+    let previewRunning = false;
     async function previewLocalBroadcast() {
       const payload = collectComposerPayload();
       if (!payload.text) {
         showToast('미리듣기할 방송 멘트를 먼저 입력해 주세요.', 'error');
         return;
       }
-
+      if (previewRunning) return showToast('미리듣기가 이미 재생 중입니다.', 'info');
+      previewRunning = true;
       showToast('내 PC 스피커로 방송 미리듣기를 재생합니다.', 'info');
-      let speechPlayer;
       try {
-        speechPlayer = await prepareSpeechPlayer(payload.text, payload);
+        await ensureAudioContextRunning();
+        // 음성 생성과 차임벨을 동시에 진행 → 차임벨이 끝나면 곧바로 멘트 시작
+        const speechPromise = resolvePlayableSpeech(payload.text, payload);
         await playChime(payload.chime);
-        await speechPlayer.play();
+        const { player } = await speechPromise;
+        await player.play();
       } catch (error) {
         console.error('[Local preview TTS]', error);
         stopActiveChime();
         showToast(error.message || '음성 미리듣기에 실패했습니다.', 'error');
       } finally {
-        if (speechPlayer) speechPlayer.dispose();
+        previewRunning = false;
       }
     }
 
-    function sendBroadcast() {
-      if (state.isDispatching) return showToast('방송 전송을 처리 중입니다. 잠시 기다려 주세요.', 'info');
+    function setSendButtonBusy(busy) {
+      // 버튼 모양은 '전송 중' 여부(state.isDispatching)와 음성 제작 상태를 함께 반영
+      renderSendButtonState();
+    }
+
+    // options.immediate === true : 음성 제작을 기다리지 않고 PC 내장 음성으로 바로 송출(긴급용)
+    function sendBroadcast(options) {
+      const immediate = !!(options && options.immediate === true);
+      // [안정화] 더블클릭·연타·Enter 반복으로 인한 중복 송출 차단
+      if (state.isDispatching) return;
       const payload = collectComposerPayload();
       if (!payload.text) {
         showToast('방송할 멘트를 입력해 주세요.', 'error');
         document.getElementById('broadcast-text')?.focus();
         return;
       }
+
+      // [v3] 음성 파일이 완성되기 전에는 송출하지 않음 (긴급 바로 송출 제외)
+      if (!immediate && requiresAiPrep(payload)) {
+        const sp = state.speechPrep;
+        const key = getPrepKey(payload);
+        if (sp.key === key && sp.status === 'urgent-sent') {
+          requestSpeechPrep();
+          showToast('AI 음성 파일을 다시 만듭니다. 완료되면 송출 버튼이 켜집니다.', 'info');
+          return;
+        }
+        if (sp.key !== key) {
+          scheduleSpeechPreload(true);
+          showToast('멘트 음성 파일을 만들고 있습니다. 완료되면 송출 버튼이 켜집니다.', 'info');
+          return;
+        }
+        if (isPrepBlocking()) {
+          showToast('멘트 음성 파일을 만드는 중입니다. 잠시만 기다려 주세요.', 'info');
+          return;
+        }
+        if (sp.status === 'error') payload.forceBrowser = true; // AI 제작 실패 → PC 음성으로 대체 송출
+      }
+      if (immediate) payload.forceBrowser = true;
+
+      if (state.lastSent.text === payload.text && Date.now() - state.lastSent.at < 8000) {
+        if (!window.confirm('방금 같은 내용을 송출했습니다. 한 번 더 송출할까요?')) return;
+      }
       state.isDispatching = true;
-      try { dispatchBroadcastPayload(payload, false); } finally { setTimeout(() => { state.isDispatching = false; }, 700); }
+      setSendButtonBusy(true);
+      state.lastSent = { text: payload.text, at: Date.now() };
+      try {
+        dispatchBroadcastPayload(payload, false);
+        // [v3.1] 긴급(PC 음성) 송출을 했다면 '제작 중' 표시를 끝냄 → 송출 후에도 계속 돌던 문제 해결
+        if (immediate && requiresAiPrep(payload) && state.speechPrep.key === getPrepKey(payload) &&
+            (isPrepBlocking() || state.speechPrep.status === 'error' || state.speechPrep.status === 'noresponse' || state.speechPrep.status === 'offline')) {
+          clearPrepTimers();
+          if (state.speechPrepareTimer) { clearTimeout(state.speechPrepareTimer); state.speechPrepareTimer = null; }
+          Object.assign(state.speechPrep, { status: 'urgent-sent', retryAt: 0 });
+        }
+      } finally {
+        // 방송실 수신 확인(ACK)이 오면 즉시 해제, 최대 2.5초 후 자동 해제
+        state.sendUnlockTimer = setTimeout(() => {
+          state.isDispatching = false;
+          setSendButtonBusy(false);
+        }, 2500);
+      }
+    }
+
+    function releaseSendLock() {
+      if (state.sendUnlockTimer) clearTimeout(state.sendUnlockTimer);
+      state.sendUnlockTimer = setTimeout(() => {
+        state.isDispatching = false;
+        setSendButtonBusy(false);
+      }, 600);
     }
 
     function dispatchBroadcastPayload(payload, isScheduled = false) {
@@ -1808,39 +2539,51 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         payload
       };
 
-      let sentOverNetwork = false;
-      if (state.localChannel) {
-        try {
-          state.localChannel.postMessage(packet);
-          sentOverNetwork = true;
-        } catch (e) {}
-      }
-
-      if (state.senderConn && state.senderConn.open) {
-        try {
-          state.senderConn.send(packet);
-          sentOverNetwork = true;
-        } catch (e) {}
-      }
-
-      if (state.mode === 'split' || state.mode === 'receiver') {
+      // [안정화] 경로를 하나만 선택해 보냅니다. (예전에는 로컬 재생 + 네트워크 전송이 동시에 일어나 두 번 방송됨)
+      let route = 'none';
+      if (shouldPlayLocally()) {
         enqueueBroadcast(payload);
-        sentOverNetwork = true;
+        route = 'local';
+      } else {
+        if (state.senderConn && state.senderConn.open) {
+          try {
+            state.senderConn.send(packet);
+            route = 'remote';
+          } catch (e) {}
+        }
+        // 같은 브라우저의 다른 탭이 방송실 역할인 경우 (수신 측에서 ID로 중복 제거)
+        if (state.localChannel) {
+          try {
+            state.localChannel.postMessage(packet);
+            if (route === 'none') route = 'tab';
+          } catch (e) {}
+        }
       }
 
       state.history.unshift({
         ...payload,
+        apiKey: undefined,
         isScheduled,
-        status: sentOverNetwork ? '전송됨' : '연결 대기 중 전송'
+        status: route === 'none' ? '연결 대기 중 전송' : '전송됨'
       });
       persistHistory();
       renderHistory();
       updateSenderLiveBanner(payload, true);
 
-      if (sentOverNetwork) {
-        showToast(isScheduled ? '예약된 방송이 방송실로 자동 송출되었습니다.' : '방송실 음향 시스템으로 방송을 전송했습니다.', 'success');
-      } else {
+      if (route === 'local') {
+        // 로컬 재생은 enqueueBroadcast가 ACK를 처리
+      } else if (route === 'none') {
         showToast('방송실 PC 연결을 확인해 주세요. (동일 채널 코드 필요)', 'error');
+        releaseSendLock();
+      } else {
+        showToast(isScheduled ? '예약된 방송을 방송실로 자동 송출했습니다.' : '방송실 음향 시스템으로 방송을 전송했습니다.', 'success');
+        const timer = setTimeout(() => {
+          state.pendingAcks.delete(payload.id);
+          showToast('방송실 PC의 수신 확인이 없습니다. 방송실 화면과 네트워크를 확인해 주세요. (자동 재전송은 하지 않습니다)', 'error');
+          const item = state.history.find(h => h.id === payload.id);
+          if (item && item.status === '전송됨') { item.status = '수신 확인 안 됨'; persistHistory(); renderHistory(); }
+        }, 6000);
+        state.pendingAcks.set(payload.id, timer);
       }
     }
 
@@ -1879,12 +2622,13 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       showToast('방송실에 방송 즉시 중단 명령을 보냈습니다.', 'info');
     }
 
-    function notifyBroadcastStateToSenders(statusType, broadcastId, payload = null) {
+    function notifyBroadcastStateToSenders(statusType, broadcastId, payload = null, extra = null) {
       const packet = {
         type: statusType,
         channel: state.channelCode,
         broadcastId,
-        payload
+        payload,
+        ...(extra || {})
       };
 
       if (state.localChannel) {
@@ -1903,7 +2647,19 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
 
     function handleBroadcastStatusUpdate(packet) {
       if (!packet) return;
-      if (packet.type === 'BROADCAST_STARTED') {
+      if (packet.type === 'BROADCAST_ACK') {
+        const timer = state.pendingAcks.get(packet.broadcastId);
+        if (timer) { clearTimeout(timer); state.pendingAcks.delete(packet.broadcastId); }
+        releaseSendLock();
+        const item = state.history.find(h => h.id === packet.broadcastId);
+        if (item && item.status !== '방송 중' && item.status !== '송출 완료') {
+          item.status = packet.duplicate ? '중복 차단됨' : '방송실 수신';
+          persistHistory();
+          renderHistory();
+        }
+      } else if (packet.type === 'BROADCAST_STARTED') {
+        const timer = state.pendingAcks.get(packet.broadcastId);
+        if (timer) { clearTimeout(timer); state.pendingAcks.delete(packet.broadcastId); }
         updateSenderLiveBanner(packet.payload, true);
         const item = state.history.find(h => h.id === packet.broadcastId);
         if (item) {
@@ -1922,20 +2678,57 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
     }
 
+    // [안정화] 방송 ID를 브라우저 저장소에도 기록 → 여러 탭/새로고침/중복 경로에서도 1회만 재생
+    const SEEN_KEY = 'sjths_pa_seen_broadcast_ids_v2';
+    function hasSeenBroadcast(id) {
+      if (!id) return false;
+      if (state.receivedBroadcastIds.has(id)) return true;
+      try {
+        const list = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]');
+        return Array.isArray(list) && list.some(e => e && e.id === id);
+      } catch (e) { return false; }
+    }
+    function markSeenBroadcast(id) {
+      if (!id) return;
+      state.receivedBroadcastIds.add(id);
+      if (state.receivedBroadcastIds.size > 300) {
+        state.receivedBroadcastIds.delete(state.receivedBroadcastIds.values().next().value);
+      }
+      try {
+        const now = Date.now();
+        let list = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]');
+        if (!Array.isArray(list)) list = [];
+        list = list.filter(e => e && now - e.t < 6 * 60 * 60 * 1000).slice(-150);
+        list.push({ id, t: now });
+        localStorage.setItem(SEEN_KEY, JSON.stringify(list));
+      } catch (e) {}
+    }
+    function isRecentDuplicateContent(payload) {
+      // 서로 다른 ID라도 같은 원고가 4초 안에 다시 들어오면 (연타/중복 경로) 무시
+      const now = Date.now();
+      state.recentContentLog = state.recentContentLog.filter(e => now - e.t < 4000);
+      const sig = (payload.text || '').trim();
+      const dup = state.recentContentLog.some(e => e.sig === sig);
+      if (!dup) state.recentContentLog.push({ sig, t: now });
+      return dup;
+    }
+
     function enqueueBroadcast(payload) {
       if (!payload || !payload.text) return;
-      // BroadcastChannel과 PeerJS로 같은 패킷이 동시에 도착할 수 있으므로 ID 기준 중복 차단
-      if (payload.id && state.receivedBroadcastIds.has(payload.id)) {
+      if (hasSeenBroadcast(payload.id) || isRecentDuplicateContent(payload)) {
         console.warn('[Broadcast] duplicate packet ignored:', payload.id);
+        notifyBroadcastStateToSenders('BROADCAST_ACK', payload.id, null, { duplicate: true });
         return;
       }
-      if (payload.id) {
-        state.receivedBroadcastIds.add(payload.id);
-        if (state.receivedBroadcastIds.size > 300) {
-          const oldest = state.receivedBroadcastIds.values().next().value;
-          state.receivedBroadcastIds.delete(oldest);
-        }
+      markSeenBroadcast(payload.id);
+      notifyBroadcastStateToSenders('BROADCAST_ACK', payload.id);
+
+      // 수신 즉시 AI 음성 생성을 시작해 두면(대기열에 있어도) 차례가 왔을 때 바로 재생됩니다.
+      if (payload.voiceEngine === 'ai' && payload.apiKey && !payload.forceBrowser) {
+        const opts = { aiVoice: payload.aiVoice || 'Kore', aiStyle: payload.aiStyle || '', apiKey: payload.apiKey };
+        splitIntoSpeechChunks(payload.text).forEach(c => getChunkAudio(c, opts));
       }
+
       state.queue.push(payload);
       renderReceiverQueue();
       if (!state.isProcessingQueue && !state.isBroadcasting) {
@@ -2010,7 +2803,6 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       if (state.queue.length === 0) {
         state.isBroadcasting = false;
         state.currentBroadcastId = null;
-        state.isProcessingQueue = false;
         setOnAirUI(false);
         return;
       }
@@ -2022,34 +2814,38 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       state.isBroadcasting = true;
       state.currentBroadcastId = current.id;
       const sessionId = ++state.broadcastSessionId;
+      const alive = () => state.isBroadcasting && state.broadcastSessionId === sessionId;
       let completed = false;
       let failed = false;
 
       setOnAirUI(true, current.dept, current.text);
-      notifyBroadcastStateToSenders('BROADCAST_STARTED', current.id, current);
+      notifyBroadcastStateToSenders('BROADCAST_STARTED', current.id, { ...current, apiKey: undefined });
 
       try {
-        if (!state.receiverAudioActivated && typeof Tone !== 'undefined') {
+        if (typeof Tone !== 'undefined') {
           try { if (Tone.context && Tone.context.state !== 'running') await Tone.start(); } catch (e) {}
         }
+        await ensureAudioContextRunning();
 
-        // 음성 파일 확보 후 차임을 재생해 차임 종료와 멘트 시작 사이의 공백을 방지
-        const speechPlayer = await getPreparedSpeechPlayer(current);
-        try {
-          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
-          await playChime(current.chime);
-          if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) return;
-          for (let i = 0; i < (current.repeat || 1); i++) {
-            if (!state.isBroadcasting || state.broadcastSessionId !== sessionId) break;
-            await speechPlayer.play();
-            if (i < (current.repeat || 1) - 1 && state.isBroadcasting && state.broadcastSessionId === sessionId) {
-              await new Promise(r => setTimeout(r, 700));
-            }
-          }
-          completed = state.isBroadcasting && state.broadcastSessionId === sessionId;
-        } finally {
-          speechPlayer.dispose();
+        // [안정화] 음성 생성과 차임벨을 '동시에' 진행합니다.
+        //  - 예전: 음성 전체 생성 완료(수 초~수십 초) → 차임벨 → 멘트  ⇒ 버튼 누른 뒤 한참 무반응
+        //  - 지금: 즉시 차임벨 + 첫 문장만 먼저 생성 → 차임벨 종료 직후 멘트 시작, 나머지는 재생 중 이어 붙임
+        const speechPromise = resolvePlayableSpeech(current.text, current);
+        await playChime(current.chime);
+        if (!alive()) return;
+        const deptEl = document.getElementById('now-playing-dept');
+        if (deptEl) deptEl.textContent = '음성 준비 중…';
+        const { player } = await speechPromise;
+        if (!alive()) return;
+        if (deptEl) deptEl.textContent = '📡 실시간 교내 방송 송출 중';
+
+        const repeat = Math.max(1, parseInt(current.repeat, 10) || 1);
+        for (let i = 0; i < repeat; i++) {
+          if (!alive()) break;
+          await player.play(alive);
+          if (i < repeat - 1 && alive()) await sleep(900);
         }
+        completed = alive();
       } catch (error) {
         failed = true;
         console.error('[Broadcast queue]', error);
@@ -2068,8 +2864,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         }
         state.isProcessingQueue = false;
         renderReceiverQueue();
-        if (state.queue.length > 0 && !state.isProcessingQueue) {
-          setTimeout(() => processNextInQueue(), 150);
+        if (state.queue.length > 0) {
+          setTimeout(() => processNextInQueue(), 300);
         }
       }
     }
@@ -2082,16 +2878,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       state.queue = [];
 
       stopActiveChime();
-      if (state.currentAudio) {
-        try {
-          state.currentAudio.pause();
-          state.currentAudio.currentTime = 0;
-        } catch (e) {}
-        state.currentAudio = null;
-      }
-      if ('speechSynthesis' in window) {
-        try { window.speechSynthesis.cancel(); } catch (e) {}
-      }
+      stopAllSpeechOutput();
 
       renderReceiverQueue();
       setOnAirUI(false);
@@ -2356,9 +3143,34 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           clockEl.textContent = now.toTimeString().split(' ')[0];
         }
         checkScheduledBroadcasts(now);
+        preloadUpcomingSchedules(now);
       };
       tick();
       state.clockTimer = setInterval(tick, 1000);
+    }
+
+    // [안정화] 예약 방송 2분 전에 방송실에서 AI 음성을 미리 생성해 두어 정시에 지연 없이 송출
+    function preloadUpcomingSchedules(now) {
+      if (state.mode === 'receiver' || now.getSeconds() % 15 !== 0) return;
+      const soon = new Date(now.getTime() + 2 * 60 * 1000);
+      const hh = String(soon.getHours()).padStart(2, '0');
+      const mm = String(soon.getMinutes()).padStart(2, '0');
+      const timeStr = `${hh}:${mm}`;
+      const dateStr = getTodayDateStr();
+      state.schedules.forEach((sched) => {
+        if (!sched.enabled || sched.time !== timeStr) return;
+        if ((sched.voiceEngine || 'ai') !== 'ai') return;
+        const key = `${sched.id}_${dateStr}_${timeStr}`;
+        if (state.preparedSchedules.has(key)) return;
+        state.preparedSchedules.add(key);
+        sendPrepareSpeechPacket({
+          text: sched.text,
+          voiceEngine: 'ai',
+          aiVoice: sched.aiVoice || 'Kore',
+          aiStyle: sched.aiStyle || '',
+          apiKey: state.customApiKey || ''
+        });
+      });
     }
 
     function checkScheduledBroadcasts(now) {
@@ -2500,38 +3312,93 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       if (!data || data.channel !== state.channelCode) return;
 
       if (data.type === 'PING') {
+        // 실제로 소리를 내는 수신 탭만 응답 (송신 탭끼리 '연결됨'으로 오인하지 않도록)
+        if (!isLocalReceiverActive()) return;
         const pong = { type: 'PONG', channel: state.channelCode };
         if (state.localChannel) {
           try { state.localChannel.postMessage(pong); } catch (e) {}
         }
         broadcastReceiverVoicesList();
       } else if (data.type === 'PONG') {
-        updateSenderConnectionUI(true);
+        if (state.mode !== 'receiver') updateSenderConnectionUI(true);
       } else if (data.type === 'RECEIVER_VOICES_LIST') {
         applyRemoteReceiverVoices(data.voices);
       } else if (data.type === 'PREPARE_BROADCAST') {
-        if (state.mode === 'receiver' || state.mode === 'split') {
-          prepareSpeechOnReceiver(data.payload);
-        }
+        if (isLocalReceiverActive()) prepareSpeechOnReceiver(data.payload, data.prepKey);
+      } else if (data.type === 'SPEECH_PREP_STATUS') {
+        if (state.mode !== 'receiver') handleSpeechPrepStatus(data);
       } else if (data.type === 'PLAY_BROADCAST') {
-        if (state.mode === 'receiver' || state.mode === 'split') {
-          enqueueBroadcast(data.payload);
-        }
+        if (isLocalReceiverActive()) enqueueBroadcast(data.payload);
       } else if (data.type === 'STOP_BROADCAST') {
-        if (state.mode === 'receiver' || state.mode === 'split') {
-          emergencyStopBroadcast(true);
-        }
-      } else if (data.type === 'BROADCAST_STARTED' || data.type === 'BROADCAST_FINISHED' || data.type === 'BROADCAST_STOPPED') {
-        handleBroadcastStatusUpdate(data);
+        if (isLocalReceiverActive()) emergencyStopBroadcast(true);
+      } else if (data.type === 'BROADCAST_ACK' || data.type === 'BROADCAST_STARTED' || data.type === 'BROADCAST_FINISHED' || data.type === 'BROADCAST_STOPPED') {
+        if (state.mode !== 'receiver') handleBroadcastStatusUpdate(data);
       }
     }
 
-    function reconnectNetwork() {
-      // Clean up existing channels & peers
-      if (state.pingTimer) {
-        clearInterval(state.pingTimer);
-        state.pingTimer = null;
+    // ---------- [안정화] 같은 브라우저 안에서 수신(재생) 탭을 하나로 제한 ----------
+    function acquireReceiverLeadership() {
+      if (state.leaderLockRequested) return;
+      state.leaderLockRequested = true;
+      if (!(navigator.locks && navigator.locks.request)) {
+        state.isReceiverLeader = true;
+        updateReceiverRoleNotice();
+        return;
       }
+      navigator.locks.request('SJTHS_PA_RECEIVER_LEADER', { mode: 'exclusive' }, () => {
+        state.isReceiverLeader = true;
+        updateReceiverRoleNotice();
+        if (state.networkStarted) reconnectNetwork();
+        return new Promise((resolve) => { state.leaderLockRelease = resolve; });
+      }).catch(() => {
+        state.isReceiverLeader = true;
+        updateReceiverRoleNotice();
+      });
+      setTimeout(updateReceiverRoleNotice, 400);
+    }
+
+    function releaseReceiverLeadership() {
+      if (state.leaderLockRelease) {
+        try { state.leaderLockRelease(); } catch (e) {}
+      }
+      state.leaderLockRelease = null;
+      state.leaderLockRequested = false;
+      if (navigator.locks && navigator.locks.request) state.isReceiverLeader = false;
+      updateReceiverRoleNotice();
+    }
+
+    function updateReceiverRoleNotice(conflictText = '') {
+      const anchor = document.getElementById('audio-lock-notice');
+      if (!anchor) return;
+      let box = document.getElementById('receiver-role-notice');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'receiver-role-notice';
+        box.className = 'hidden mt-3 bg-rose-500/15 border border-rose-400/40 rounded-2xl p-3 text-xs text-rose-100 leading-relaxed';
+        anchor.insertAdjacentElement('afterend', box);
+      }
+      let msg = '';
+      if (state.mode !== 'sender' && !state.isReceiverLeader) {
+        msg = '이 브라우저의 다른 탭(또는 창)이 이미 방송실 역할을 하고 있어 이 탭에서는 소리를 내지 않습니다. 중복 방송을 막기 위한 동작이니 다른 탭을 닫으면 자동으로 이 탭이 이어받습니다.';
+      } else if (conflictText) {
+        msg = conflictText;
+      }
+      box.textContent = msg;
+      box.classList.toggle('hidden', !msg);
+    }
+
+    function getReceiverPeerId() {
+      return 'SJTHS-PA-RX-' + state.channelCode.replace(/[^A-Z0-9-]/g, '');
+    }
+
+    function clearNetworkTimers() {
+      ['pingTimer', 'rxRetryTimer', 'rxClaimTimer'].forEach((k) => {
+        if (state[k]) { clearTimeout(state[k]); clearInterval(state[k]); state[k] = null; }
+      });
+    }
+
+    function reconnectNetwork() {
+      clearNetworkTimers();
       if (state.localChannel) {
         try { state.localChannel.close(); } catch (e) {}
         state.localChannel = null;
@@ -2546,86 +3413,215 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
       state.activeRxConnections.clear();
       state.senderConn = null;
+      state.senderConnPending = false;
+      state.ownsReceiverPeer = false;
+      state.networkStarted = true;
 
-      updateSenderConnectionUI(state.mode === 'split');
+      updateSenderConnectionUI(false);
 
       // 1) Same-browser tab communication via BroadcastChannel
       if ('BroadcastChannel' in window) {
         try {
           state.localChannel = new BroadcastChannel('SCHOOL_PA_' + state.channelCode);
           state.localChannel.onmessage = (event) => handleIncomingPacket(event.data);
-          state.localChannel.postMessage({ type: 'PING', channel: state.channelCode });
+          if (state.mode !== 'receiver') state.localChannel.postMessage({ type: 'PING', channel: state.channelCode });
         } catch (e) {}
       }
 
       // 2) Cross-PC communication via PeerJS WebRTC
-      if (typeof Peer === 'undefined') return;
+      if (typeof Peer === 'undefined') {
+        if (state.mode === 'split') updateSenderConnectionUI(true, '통합 모드: 이 PC에서 직접 방송합니다. (PC 간 연결 모듈을 불러오지 못했습니다)');
+        return;
+      }
 
-      const receiverPeerId = 'SJTHS-PA-RX-' + state.channelCode.replace(/[^A-Z0-9-]/g, '');
+      const wantsTx = state.mode !== 'receiver';
+      const wantsRx = isLocalReceiverActive();
 
-      // Receiver node registration
+      if (wantsTx) startSenderPeer();
+      if (wantsRx) {
+        if (state.mode === 'split') {
+          // 통합 모드: 별도의 방송실 PC가 이미 있으면 그쪽으로만 보내고, 없을 때만 이 PC가 방송실 역할을 맡음
+          state.rxClaimTimer = setTimeout(() => {
+            state.rxClaimTimer = null;
+            if (!(state.senderConn && state.senderConn.open)) claimReceiverPeer();
+          }, 3500);
+        } else {
+          claimReceiverPeer();
+        }
+      }
+      if (state.mode === 'split') {
+        setTimeout(() => {
+          if (!(state.senderConn && state.senderConn.open)) updateSenderConnectionUI(true, '통합 모드: 이 PC가 방송실 역할을 맡아 직접 방송합니다.');
+        }, 4200);
+      }
+    }
+
+    function scheduleReceiverClaimRetry(ms) {
+      if (state.rxRetryTimer) clearTimeout(state.rxRetryTimer);
+      state.rxRetryTimer = setTimeout(() => {
+        state.rxRetryTimer = null;
+        if (isLocalReceiverActive() && !state.ownsReceiverPeer) claimReceiverPeer();
+      }, ms);
+    }
+
+    function claimReceiverPeer() {
+      if (state.receiverPeer && !state.receiverPeer.destroyed) {
+        try { state.receiverPeer.destroy(); } catch (e) {}
+      }
+      let rxPeer;
       try {
-        const rxPeer = new Peer(receiverPeerId, { debug: 0 });
-        state.receiverPeer = rxPeer;
+        rxPeer = new Peer(getReceiverPeerId(), { debug: 0 });
+      } catch (e) {
+        scheduleReceiverClaimRetry(5000);
+        return;
+      }
+      state.receiverPeer = rxPeer;
 
-        rxPeer.on('open', () => {
-          broadcastReceiverVoicesList();
+      rxPeer.on('open', () => {
+        state.ownsReceiverPeer = true;
+        updateReceiverRoleNotice();
+        broadcastReceiverVoicesList();
+        if (state.mode === 'split') updateSenderConnectionUI(true, '통합 모드: 이 PC가 방송실 역할을 맡아 직접 방송합니다.');
+      });
+
+      rxPeer.on('connection', (conn) => {
+        state.activeRxConnections.add(conn);
+        conn.on('open', () => broadcastReceiverVoicesList());
+        conn.on('data', (data) => {
+          if (data && data.type === 'RX_TAKEOVER' && data.channel === state.channelCode) {
+            // 전용 방송실 PC가 수신 역할을 요청하면 통합 모드 화면은 양보
+            if (state.mode === 'split') yieldReceiverRole();
+            return;
+          }
+          handleIncomingPacket(data);
         });
+        conn.on('close', () => state.activeRxConnections.delete(conn));
+        conn.on('error', () => state.activeRxConnections.delete(conn));
+      });
 
-        rxPeer.on('connection', (conn) => {
-          state.activeRxConnections.add(conn);
+      rxPeer.on('disconnected', () => {
+        // 시그널링 서버와 연결만 끊긴 경우: ID를 유지한 채 재접속
+        if (!rxPeer.destroyed) {
+          try { rxPeer.reconnect(); } catch (e) {}
+        }
+      });
+
+      rxPeer.on('error', (err) => {
+        const type = err && err.type;
+        if (type === 'unavailable-id') {
+          state.ownsReceiverPeer = false;
+          try { rxPeer.destroy(); } catch (e) {}
+          if (state.mode === 'receiver') {
+            // 새로고침 직후 이전 세션 ID가 남아 있거나, 통합 모드 PC가 ID를 잡고 있는 경우
+            requestReceiverTakeover();
+            updateReceiverRoleNotice('같은 채널을 다른 화면이 수신 중입니다. 교무실 PC가 "통합" 모드라면 자동으로 이 방송실 PC에 역할을 넘기도록 요청했습니다. 잠시 후 자동 재시도합니다.');
+            scheduleReceiverClaimRetry(4000);
+          }
+          // split 모드는 이미 다른 방송실 PC가 있다는 뜻이므로 송신 전용으로 동작
+        } else if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
+          state.ownsReceiverPeer = false;
+          scheduleReceiverClaimRetry(5000);
+        }
+      });
+    }
+
+    function yieldReceiverRole() {
+      if (state.receiverPeer) {
+        try { state.receiverPeer.destroy(); } catch (e) {}
+        state.receiverPeer = null;
+      }
+      state.ownsReceiverPeer = false;
+      state.activeRxConnections.clear();
+      showToast('전용 방송실 PC가 연결되어 방송은 방송실 PC에서 재생됩니다.', 'info');
+      updateSenderConnectionUI(false, '전용 방송실 PC로 연결을 전환하는 중입니다…');
+    }
+
+    function requestReceiverTakeover() {
+      if (Date.now() - state.lastTakeoverRequestAt < 20000) return;
+      state.lastTakeoverRequestAt = Date.now();
+      try {
+        const tmp = new Peer(undefined, { debug: 0 });
+        const cleanup = () => { try { tmp.destroy(); } catch (e) {} };
+        tmp.on('open', () => {
+          const conn = tmp.connect(getReceiverPeerId(), { reliable: true });
           conn.on('open', () => {
-            broadcastReceiverVoicesList();
+            try { conn.send({ type: 'RX_TAKEOVER', channel: state.channelCode }); } catch (e) {}
+            setTimeout(cleanup, 1500);
           });
-          conn.on('data', (data) => handleIncomingPacket(data));
-          conn.on('close', () => state.activeRxConnections.delete(conn));
-          conn.on('error', () => state.activeRxConnections.delete(conn));
+          conn.on('error', cleanup);
         });
-
-        rxPeer.on('error', () => {
-          // Expected when another tab/PC already owns the Receiver ID
-        });
+        tmp.on('error', cleanup);
+        setTimeout(cleanup, 8000);
       } catch (e) {}
+    }
 
-      // Sender node connection to Receiver peer
+    function startSenderPeer() {
+      let txPeer;
       try {
-        const txPeer = new Peer(undefined, { debug: 0 });
-        state.senderPeer = txPeer;
+        txPeer = new Peer(undefined, { debug: 0 });
+      } catch (e) {
+        return;
+      }
+      state.senderPeer = txPeer;
 
-        const connectToReceiver = () => {
-          if (!state.senderPeer || state.senderPeer.destroyed) return;
-          if (state.senderConn && state.senderConn.open) return;
+      const connectToReceiver = () => {
+        if (!state.senderPeer || state.senderPeer !== txPeer || txPeer.destroyed || txPeer.disconnected) return;
+        if (state.ownsReceiverPeer) return;                         // 자기 자신에게 연결하지 않음
+        if (state.senderConn && state.senderConn.open) return;
+        if (state.senderConnPending) return;                          // 연결 시도 중복 방지
 
-          const conn = txPeer.connect(receiverPeerId, { reliable: true });
-          state.senderConn = conn;
+        const conn = txPeer.connect(getReceiverPeerId(), { reliable: true });
+        state.senderConn = conn;
+        state.senderConnPending = true;
+        const pendingTimer = setTimeout(() => {
+          if (!conn.open) {
+            state.senderConnPending = false;
+            try { conn.close(); } catch (e) {}
+            if (state.senderConn === conn) state.senderConn = null;
+          }
+        }, 7000);
 
-          conn.on('open', () => {
-            updateSenderConnectionUI(true);
-            try { conn.send({ type: 'PING', channel: state.channelCode }); } catch (e) {}
-          });
-          conn.on('data', (data) => handleIncomingPacket(data));
-          conn.on('close', () => {
-            if (state.mode !== 'split') updateSenderConnectionUI(false);
-          });
-          conn.on('error', () => {
-            if (state.mode !== 'split') updateSenderConnectionUI(false);
-          });
+        conn.on('open', () => {
+          clearTimeout(pendingTimer);
+          state.senderConnPending = false;
+          if (state.rxClaimTimer) { clearTimeout(state.rxClaimTimer); state.rxClaimTimer = null; }
+          updateSenderConnectionUI(true);
+          try { conn.send({ type: 'PING', channel: state.channelCode }); } catch (e) {}
+        });
+        conn.on('data', (data) => handleIncomingPacket(data));
+        const onDown = () => {
+          clearTimeout(pendingTimer);
+          state.senderConnPending = false;
+          if (state.senderConn === conn) state.senderConn = null;
+          if (state.mode === 'split' && state.ownsReceiverPeer) return;
+          updateSenderConnectionUI(false);
+          // 통합 모드에서 방송실 PC가 사라지면 이 PC가 다시 방송실 역할을 맡음
+          if (state.mode === 'split' && isLocalReceiverActive() && !state.ownsReceiverPeer) scheduleReceiverClaimRetry(2500);
         };
+        conn.on('close', onDown);
+        conn.on('error', onDown);
+      };
 
-        txPeer.on('open', () => {
+      txPeer.on('open', () => {
+        connectToReceiver();
+        state.pingTimer = setInterval(() => {
+          if (state.localChannel) {
+            try { state.localChannel.postMessage({ type: 'PING', channel: state.channelCode }); } catch (e) {}
+          }
           connectToReceiver();
-          state.pingTimer = setInterval(() => {
-            if (state.localChannel) {
-              try { state.localChannel.postMessage({ type: 'PING', channel: state.channelCode }); } catch (e) {}
-            }
-            if (!state.senderConn || !state.senderConn.open) {
-              connectToReceiver();
-            }
-          }, 5000);
-        });
-
-        txPeer.on('error', () => {});
-      } catch (e) {}
+        }, 4000);
+      });
+      txPeer.on('disconnected', () => {
+        if (!txPeer.destroyed) {
+          try { txPeer.reconnect(); } catch (e) {}
+        }
+      });
+      txPeer.on('error', (err) => {
+        if (err && err.type === 'peer-unavailable') {
+          state.senderConnPending = false;
+          state.senderConn = null;
+        }
+      });
     }
 
     // ==================== 9. UTILITIES & BOOTSTRAP ====================
@@ -2690,26 +3686,55 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       renderSchedules();
       renderHistory();
       startSystemClock();
+      if (state.mode !== 'sender') acquireReceiverLeadership();
       reconnectNetwork();
       safeCreateIcons();
 
       const textArea = document.getElementById('broadcast-text');
       if (textArea) {
         textArea.addEventListener('input', updateCharCount);
+        textArea.addEventListener('input', scheduleSpeechPreload);
       }
+      ['opt-voice-engine', 'opt-ai-voice', 'opt-ai-style', 'opt-rate', 'opt-pitch'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => scheduleSpeechPreload(true));
+      });
+      // [v3] 진행 시간·재시도 카운트다운 표시 갱신
+      setInterval(() => {
+        const st = state.speechPrep.status;
+        if (st === 'preparing' || (st === 'error' && state.speechPrep.retryAt)) renderSendButtonState();
+      }, 1000);
+      scheduleSpeechPreload(true);
     }
+
+    // 문구 템플릿/기록 불러오기/문장 다듬기 후에도 미리 생성이 시작되도록 연결
+    // 템플릿·기록 불러오기·문장 다듬기는 완성된 문장이므로 즉시 제작, 문구 삽입은 입력 멈춤 후 제작
+    [['applyTemplate', true], ['insertPhrase', false], ['reuseHistoryItem', true], ['polishBroadcastText', true],
+     ['clearBroadcastText', true], ['saveChannelSettings', true], ['toggleVoiceEngineUI', true]].forEach(([name, immediate]) => {
+      const original = window[name];
+      if (typeof original !== 'function') return;
+      window[name] = function (...args) {
+        const result = original.apply(this, args);
+        Promise.resolve(result).finally(() => { if (appInitialized) scheduleSpeechPreload(immediate); });
+        return result;
+      };
+    });
+    // 방송실 연결이 생기거나 바뀌면 음성 제작을 다시 요청
+    (function () {
+      const original = window.updateSenderConnectionUI;
+      if (typeof original !== 'function') return;
+      window.updateSenderConnectionUI = function (...args) {
+        const result = original.apply(this, args);
+        if (appInitialized) setTimeout(onPrepRouteMaybeChanged, 300);
+        return result;
+      };
+    })();
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initApp);
     } else {
       initApp();
     }
-    document.addEventListener('DOMContentLoaded', () => {
-      const composer = document.getElementById('broadcast-text');
-      if (composer) composer.addEventListener('input', scheduleSpeechPreload);
-      ['opt-voice-engine','opt-ai-voice','opt-ai-style','opt-rate','opt-pitch'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', scheduleSpeechPreload); });
-    });
-
     window.addEventListener('load', initApp);
   </script>
 </body>
