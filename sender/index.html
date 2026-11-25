@@ -2368,7 +2368,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       const sp = state.speechPrep;
 
       let disabled = false;
-      let labelText = '즉시 교내 방송 송출';
+      let labelText = '확인 및 음성 제작';
       let msg = '';
       let tone = null; // 'info' | 'ok' | 'warn' | 'err'
       let showQuick = false;
@@ -2378,8 +2378,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       switch (sp.status) {
         case 'waiting':
           disabled = true;
-          labelText = '멘트 음성 파일 제작 대기 중…';
-          msg = '입력을 마치면 방송실 PC에서 AI 음성 파일을 만듭니다.';
+          labelText = '확인 및 음성 제작';
+          msg = '멘트를 모두 작성한 뒤 이 버튼을 누르면 AI 음성 파일 제작을 시작합니다.';
           tone = 'info'; showQuick = true; pct = 0;
           break;
         case 'preparing': {
@@ -2388,8 +2388,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           const done = Math.min(total, sp.done || 0);
           const since = sp.startedAt || sp.sentAt || Date.now();
           const elapsedSec = Math.max(0, Math.floor((Date.now() - since) / 1000));
-          labelText = total > 1 ? `멘트 음성 파일 제작 중… (${done}/${total})` : '멘트 음성 파일 제작 중…';
-          msg = `방송실 PC에서 AI 음성 파일을 만들고 있습니다. 완료되면 송출 버튼이 켜집니다. (${elapsedSec}초 경과)`;
+          labelText = total > 1 ? `음성 제작 중… (${done}/${total})` : '음성 제작 중…';
+          msg = `방송실 PC에서 AI 음성 파일을 만들고 있습니다. 완료되면 같은 버튼으로 방송할 수 있습니다. (${elapsedSec}초 경과)`;
           const expectedMs = 3000 + (sp.textLength || 60) * 35;
           const timePct = Math.min(90, ((Date.now() - since) / expectedMs) * 100);
           pct = Math.max(5, (done / total) * 100, timePct);
@@ -2397,7 +2397,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           break;
         }
         case 'ready':
-          msg = '음성 파일 준비 완료 · 송출하면 차임벨 직후 끊김 없이 방송됩니다.';
+          labelText = '준비 완료 · 교내 방송 송출';
+          msg = '음성 파일 준비 완료 · 버튼을 누르면 차임벨 직후 끊김 없이 방송됩니다.';
           tone = 'ok'; pct = 100;
           break;
         case 'ready-browser':
@@ -2547,9 +2548,9 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           showToast('AI 음성 파일을 다시 만듭니다. 완료되면 송출 버튼이 켜집니다.', 'info');
           return;
         }
-        if (sp.key !== key) {
-          scheduleSpeechPreload(true);
-          showToast('멘트 음성 파일을 만들고 있습니다. 완료되면 송출 버튼이 켜집니다.', 'info');
+        if (sp.key !== key || sp.status === 'idle' || sp.status === 'waiting' || sp.status === 'offline') {
+          requestSpeechPrep();
+          showToast('확인되었습니다. 멘트 음성 파일을 제작합니다. 완료되면 방송 버튼이 활성화됩니다.', 'info');
           return;
         }
         if (isPrepBlocking()) {
@@ -4891,32 +4892,19 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       const textArea = document.getElementById('broadcast-text');
       if (textArea) {
         textArea.addEventListener('input', updateCharCount);
-        textArea.addEventListener('input', scheduleSpeechPreload);
       }
-      ['opt-voice-engine', 'opt-ai-voice', 'opt-ai-style', 'opt-rate', 'opt-pitch'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('change', () => scheduleSpeechPreload(true));
-      });
+      // 문장/성우 설정 변경만으로는 TTS API를 호출하지 않습니다.
+      // 사용자가 '확인 및 음성 제작' 버튼을 눌렀을 때만 제작을 시작합니다.
       // [v3] 진행 시간·재시도 카운트다운 표시 갱신
       setInterval(() => {
         const st = state.speechPrep.status;
         if (st === 'preparing' || (st === 'error' && state.speechPrep.retryAt)) renderSendButtonState();
       }, 1000);
-      scheduleSpeechPreload(true);
+      // 앱 시작 시 자동 음성 제작을 하지 않습니다. 미리듣기는 사용자가 원할 때만 실행합니다.
     }
 
-    // 문구 템플릿/기록 불러오기/문장 다듬기 후에도 미리 생성이 시작되도록 연결
-    // 템플릿·기록 불러오기·문장 다듬기는 완성된 문장이므로 즉시 제작, 문구 삽입은 입력 멈춤 후 제작
-    [['applyTemplate', true], ['insertPhrase', false], ['reuseHistoryItem', true], ['polishBroadcastText', true],
-     ['clearBroadcastText', true], ['saveChannelSettings', true], ['toggleVoiceEngineUI', true]].forEach(([name, immediate]) => {
-      const original = window[name];
-      if (typeof original !== 'function') return;
-      window[name] = function (...args) {
-        const result = original.apply(this, args);
-        Promise.resolve(result).finally(() => { if (appInitialized) scheduleSpeechPreload(immediate); });
-        return result;
-      };
-    });
+    // 템플릿/기록/문장 다듬기 후에도 자동 TTS 제작은 하지 않습니다.
+    // 최종 원고를 확인한 뒤 사용자가 제작 버튼을 눌러야 API를 호출합니다.
     // 방송실 연결이 생기거나 바뀌면 음성 제작을 다시 요청
     (function () {
       const original = window.updateSenderConnectionUI;
