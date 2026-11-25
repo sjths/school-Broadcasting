@@ -691,7 +691,7 @@
         </p>
       </div>
 
-      <!-- [v3.4] Firebase 중계 서버 -->
+      <!-- [v3.5] Firebase 중계 서버 -->
       <div class="bg-[#EFE9DD]/70 border border-[#3A2E25] rounded-2xl p-3.5 space-y-1.5">
         <label for="modal-firebase-input" class="block text-xs font-extrabold text-[#2B2623]">
           중계 서버 주소 (Firebase Realtime Database) <span class="font-normal text-[#786F68]">(권장 · 두 PC에 똑같이 입력)</span>
@@ -2607,7 +2607,10 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           } catch (e) {}
         }
         // [v3.2] PC 간 직접 연결(WebRTC)이 막힌 경우 인터넷 중계로 전달 (수신 측에서 방송 ID로 중복 제거)
-        if (route === 'none' && getCurrentPrepRoute() === 'relay') {
+        // WebRTC 연결 객체가 open으로 남아 있어도 실제 send가 실패할 수 있습니다.
+        // 이 경우 getCurrentPrepRoute()는 여전히 remote를 반환하므로,
+        // Firebase 중계가 살아 있으면 직접 중계 전송으로 우회합니다.
+        if (route === 'none' && relayCanSend()) {
           if (relayPost(packet)) route = 'relay';
         }
         // 같은 브라우저의 다른 탭이 방송실 역할인 경우 (수신 측에서 ID로 중복 제거)
@@ -2623,7 +2626,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         ...payload,
         apiKey: undefined,
         isScheduled,
-        status: route === 'none' ? '연결 대기 중 전송' : '전송됨'
+        status: route === 'none' ? '연결 대기 중 전송' : (route === 'relay' ? '중계 전송 확인 중' : '전송됨')
       });
       persistHistory();
       renderHistory();
@@ -4715,17 +4718,47 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
     }
 
-    function runConnectionTest() {
+    async function probeFirebaseReadPermission() {
+      if (relay.backend !== 'firebase' || !relay.fbUrl || !relay.topic) return null;
+      try {
+        const url = `${fbTopicUrl('m')}?orderBy=${encodeURIComponent('"$key"')}&limitToLast=1`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.status === 401 || res.status === 403) {
+          relay.test.readOk = false;
+          relay.lastError = 'Firebase 읽기 권한이 없습니다. Realtime Database 규칙에서 /pa/$topic 읽기를 허용해야 합니다.';
+          return false;
+        }
+        if (!res.ok) {
+          relay.test.readOk = false;
+          relay.lastError = `Firebase 읽기 검사 실패 (HTTP ${res.status})`;
+          return false;
+        }
+        relay.test.readOk = true;
+        return true;
+      } catch (e) {
+        relay.test.readOk = false;
+        relay.lastError = 'Firebase 읽기 검사 중 네트워크 오류가 발생했습니다.';
+        return false;
+      } finally {
+        renderConnDiag();
+      }
+    }
+
+    async function runConnectionTest() {
       const nonce = 't' + Math.random().toString(36).slice(2, 9);
-      relay.test = { nonce, at: Date.now(), selfEchoMs: 0, peerMs: 0 };
+      relay.test = { nonce, at: Date.now(), selfEchoMs: 0, peerMs: 0, readOk: null };
       if (!relayCanSend()) {
         relay.test.relayDown = true;
         if (relay.status !== 'connecting') startRelay();
-      } else if (state.mode === 'receiver') {
-        relay.lastHelloAt = Date.now();
-        relayPost({ type: 'RX_HELLO', channel: state.channelCode, nonce });
       } else {
-        relayPing(nonce);
+        // 'Firebase 연결됨' 표시와 별개로 /m 경로의 실제 읽기 권한을 확인합니다.
+        probeFirebaseReadPermission();
+        if (state.mode === 'receiver') {
+          relay.lastHelloAt = Date.now();
+          relayPost({ type: 'RX_HELLO', channel: state.channelCode, nonce });
+        } else {
+          relayPing(nonce);
+        }
       }
       if (state.senderConn && state.senderConn.open) {
         try { state.senderConn.send({ type: 'PING', channel: state.channelCode }); } catch (e) {}
@@ -4807,8 +4840,11 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         const parts = [];
         if (t.relayDown) parts.push('중계 서버에 연결되어 있지 않아 시험할 수 없습니다. 다시 연결을 시도합니다.');
         else {
-          parts.push(t.selfEchoMs ? `중계 서버 송수신 정상(${t.selfEchoMs}ms)` : (elapsed > 7000 ? '중계 서버로 보낸 신호가 돌아오지 않음' : '중계 서버 시험 중…'));
-          if (!isRx) parts.push(t.peerMs ? `방송실 PC 응답 ${t.peerMs}ms` : (elapsed > 7000 ? '방송실 PC 응답 없음 → 방송실 PC 화면의 [연결 상태]에 "사용 한도 초과"가 보이는지, 두 PC의 버전(v3.4)·중계 서버·채널 코드가 같은지 확인' : '방송실 PC 응답 기다리는 중…'));
+          if (t.readOk === true) parts.push('Firebase 읽기 권한 정상');
+          else if (t.readOk === false) parts.push('Firebase 읽기 권한 오류');
+          else if (relay.backend === 'firebase') parts.push('Firebase 읽기 권한 검사 중…');
+          parts.push(t.selfEchoMs ? `중계 서버 송수신 정상(${t.selfEchoMs}ms)` : (elapsed > 7000 ? '내가 보낸 신호가 되돌아오지 않음 → /pa 경로 읽기 규칙과 SSE 수신을 확인' : '중계 서버 시험 중…'));
+          if (!isRx) parts.push(t.peerMs ? `방송실 PC 응답 ${t.peerMs}ms` : (elapsed > 7000 ? '방송실 PC 응답 없음 → 채널 코드·수신 모드·수신 대기 상태를 확인' : '방송실 PC 응답 기다리는 중…'));
         }
         testLine = `<div class="mt-1.5 text-[11px] text-[#5C432E]">연결 테스트: ${escapeHtml(parts.join(' · '))}</div>`;
       }
