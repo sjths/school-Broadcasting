@@ -2046,13 +2046,16 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     // [안정화] 입력을 멈추면 방송실(수신) 쪽에서 문장 단위로 AI 음성을 미리 생성합니다.
     // 문장 단위 캐시라 일부만 고쳐도 바뀐 문장만 다시 생성하며, 분당 요청 예산을 넘기면 미리 생성을 건너뜁니다.
     function isLocalReceiverActive() {
-      return state.mode !== 'sender' && state.isReceiverLeader;
+      // [v3.2] 다른 PC가 이미 방송실 역할을 하고 있으면(중계 서버로 확인) 이 화면은 대기 상태
+      return state.mode !== 'sender' && state.isReceiverLeader && !(state.mode === 'receiver' && relay.passive);
     }
 
     function shouldPlayLocally() {
       // 통합(split) 모드: 이 화면이 방송실 역할을 맡고 있거나, 별도 방송실 PC가 연결되어 있지 않을 때만 직접 재생
       if (!isLocalReceiverActive()) return false;
       if (state.mode === 'receiver') return true;
+      // [v3.2] 인터넷 중계로 별도 방송실 PC가 확인되면 이 PC는 재생하지 않고 그쪽으로 보냄
+      if (relayReceiverFresh()) return false;
       const remoteOpen = !!(state.senderConn && state.senderConn.open);
       return state.ownsReceiverPeer || !remoteOpen;
     }
@@ -2092,6 +2095,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           try { conn.send(packet); } catch (e) {}
         }
       });
+      // [v3.2] 교무실 PC가 인터넷 중계로 요청한 경우 결과도 중계로 회신 (진행률 중간 알림은 사용량 보호를 위해 생략)
+      if (!info._progress && relayShouldReply()) relayPost(packet);
       if (state.mode !== 'receiver') handleSpeechPrepStatus(packet);
     }
 
@@ -2121,7 +2126,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       try {
         await Promise.all(chunks.map(c => getChunkAudio(c, opts).then(() => {
           done++;
-          if (done < total) sendPrepStatus(prepKey, { status: 'preparing', done, total });
+          if (done < total) sendPrepStatus(prepKey, { status: 'preparing', done, total, _progress: true });
         })));
         sendPrepStatus(prepKey, { status: 'ready', done: total, total });
       } catch (err) {
@@ -2135,11 +2140,14 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     function getCurrentPrepRoute() {
       if (shouldPlayLocally()) return 'local';
       if (state.senderConn && state.senderConn.open) return 'remote';
+      if (relayReceiverFresh()) return 'relay';
+      if (state.localChannel && state.receiverOnline && !relay.remoteReceiverAt) return 'tab';
+      if (relayCanSend()) return 'relay';
       if (state.localChannel && state.receiverOnline) return 'tab';
       return 'none';
     }
 
-    function sendPrepareSpeechPacket(payload, prepKey) {
+    function sendPrepareSpeechPacket(payload, prepKey, force = false) {
       if (!payload || !payload.text) return false;
       prepKey = prepKey || getPrepKey(payload);
       if (shouldPlayLocally()) {
@@ -2148,8 +2156,17 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
       const packet = { type: 'PREPARE_BROADCAST', channel: state.channelCode, payload, prepKey };
       let sent = false;
+      let p2pSent = false;
       if (state.senderConn && state.senderConn.open) {
-        try { state.senderConn.send(packet); sent = true; } catch (e) {}
+        try { state.senderConn.send(packet); sent = true; p2pSent = true; } catch (e) {}
+      }
+      // [v3.2] PC 간 직접 연결이 안 되면 인터넷 중계로 전달 (사용량 보호를 위해 같은 멘트 재확인은 간격 제한)
+      if (!p2pSent && getCurrentPrepRoute() === 'relay') {
+        const lp = relay.lastPrepSend;
+        if (force || !lp || lp.key !== prepKey || Date.now() - lp.at >= RELAY_CONFIG.PREP_POLL_MS - 300) {
+          if (relayPost(packet)) relay.lastPrepSend = { key: prepKey, at: Date.now() };
+        }
+        sent = true;
       }
       if (state.localChannel) {
         try { state.localChannel.postMessage(packet); sent = true; } catch (e) {}
@@ -2194,7 +2211,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         key, status: 'preparing', done: 0, total: splitIntoSpeechChunks(p.text).length,
         message: '', route, sentAt: Date.now(), startedAt, lastStatusAt: 0, retryAt: 0, textLength: p.text.length
       });
-      if (route === 'none' || !sendPrepareSpeechPacket(p, key)) {
+      if (route === 'none' || !sendPrepareSpeechPacket(p, key, true)) {
         setPrepState({ status: 'offline' });
         return;
       }
@@ -2204,7 +2221,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           clearPrepTimers();
           setPrepState({ status: 'noresponse' });
         }
-      }, TTS_CONFIG.PREP_RESPONSE_TIMEOUT_MS);
+      }, route === 'relay' ? RELAY_CONFIG.PREP_RESPONSE_TIMEOUT_MS : TTS_CONFIG.PREP_RESPONSE_TIMEOUT_MS);
       // [v3.1] 제작 중에는 주기적으로 진행 상황을 다시 물어봄 → '완료' 회신이 유실돼도 버튼이 영원히 잠기지 않음
       state.prepPollTimer = setInterval(() => {
         const sp = state.speechPrep;
@@ -2212,7 +2229,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           clearInterval(state.prepPollTimer); state.prepPollTimer = null;
           return;
         }
-        if (sp.lastStatusAt && Date.now() - sp.lastStatusAt > TTS_CONFIG.PREP_STALE_MS) {
+        if (sp.lastStatusAt && Date.now() - sp.lastStatusAt > (route === 'relay' ? RELAY_CONFIG.PREP_STALE_MS : TTS_CONFIG.PREP_STALE_MS)) {
           clearPrepTimers();
           setPrepState({ status: 'noresponse' });
           return;
@@ -2551,6 +2568,10 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
             route = 'remote';
           } catch (e) {}
         }
+        // [v3.2] PC 간 직접 연결(WebRTC)이 막힌 경우 인터넷 중계로 전달 (수신 측에서 방송 ID로 중복 제거)
+        if (route === 'none' && getCurrentPrepRoute() === 'relay') {
+          if (relayPost(packet)) route = 'relay';
+        }
         // 같은 브라우저의 다른 탭이 방송실 역할인 경우 (수신 측에서 ID로 중복 제거)
         if (state.localChannel) {
           try {
@@ -2582,7 +2603,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           showToast('방송실 PC의 수신 확인이 없습니다. 방송실 화면과 네트워크를 확인해 주세요. (자동 재전송은 하지 않습니다)', 'error');
           const item = state.history.find(h => h.id === payload.id);
           if (item && item.status === '전송됨') { item.status = '수신 확인 안 됨'; persistHistory(); renderHistory(); }
-        }, 6000);
+        }, route === 'relay' ? 12000 : 6000);
         state.pendingAcks.set(payload.id, timer);
       }
     }
@@ -2613,6 +2634,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
       if (state.senderConn && state.senderConn.open) {
         try { state.senderConn.send(packet); } catch (e) {}
+      } else if (state.mode !== 'receiver' && relayCanSend()) {
+        relayPost(packet); // [v3.2] 긴급 중단은 중계로도 전달
       }
       if (state.mode === 'split' || state.mode === 'receiver') {
         emergencyStopBroadcast(true);
@@ -2639,6 +2662,10 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           try { conn.send(packet); } catch (e) {}
         }
       });
+      // [v3.2] 중계로 받은 방송은 수신 확인·완료 소식도 중계로 회신 (방송 시작 알림은 사용량 보호를 위해 생략)
+      if (statusType !== 'BROADCAST_STARTED' && relayShouldReply()) {
+        relayPost({ ...packet, payload: null });
+      }
 
       if (state.mode === 'split' || state.mode === 'sender') {
         handleBroadcastStatusUpdate(packet);
@@ -3286,6 +3313,11 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
 
     // ==================== 8. NETWORKING (WebRTC + BroadcastChannel) ====================
     function updateSenderConnectionUI(isOnline, detailText = '') {
+      // [v3.2] 직접 연결이 끊겨도 인터넷 중계로 방송실 PC가 확인되면 '연결됨'으로 표시
+      if (!isOnline && state.mode !== 'receiver' && relayReceiverFresh()) {
+        isOnline = true;
+        detailText = relayOnlineText();
+      }
       state.receiverOnline = isOnline;
       const dot = document.getElementById('sender-status-dot');
       const badge = document.getElementById('sender-conn-badge');
@@ -3382,6 +3414,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         msg = '이 브라우저의 다른 탭(또는 창)이 이미 방송실 역할을 하고 있어 이 탭에서는 소리를 내지 않습니다. 중복 방송을 막기 위한 동작이니 다른 탭을 닫으면 자동으로 이 탭이 이어받습니다.';
       } else if (conflictText) {
         msg = conflictText;
+      } else if (state.mode === 'receiver' && relay.passive) {
+        msg = relay.passiveReason || '다른 PC가 이미 이 채널의 방송실 역할을 하고 있어 이 화면은 대기 상태입니다.';
       }
       box.textContent = msg;
       box.classList.toggle('hidden', !msg);
@@ -3428,8 +3462,13 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         } catch (e) {}
       }
 
-      // 2) Cross-PC communication via PeerJS WebRTC
+      // 2) [v3.2] 인터넷 중계(HTTPS) — 학교망에서 WebRTC가 막혀도 동작하는 보조 경로
+      ensureRelay();
+
+      // 3) Cross-PC communication via PeerJS WebRTC
       if (typeof Peer === 'undefined') {
+        p2pDiag.tx = p2pDiag.rx = 'unavailable';
+        renderConnDiag();
         if (state.mode === 'split') updateSenderConnectionUI(true, '통합 모드: 이 PC에서 직접 방송합니다. (PC 간 연결 모듈을 불러오지 못했습니다)');
         return;
       }
@@ -3443,7 +3482,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
           // 통합 모드: 별도의 방송실 PC가 이미 있으면 그쪽으로만 보내고, 없을 때만 이 PC가 방송실 역할을 맡음
           state.rxClaimTimer = setTimeout(() => {
             state.rxClaimTimer = null;
-            if (!(state.senderConn && state.senderConn.open)) claimReceiverPeer();
+            if (!(state.senderConn && state.senderConn.open) && !relayReceiverFresh()) claimReceiverPeer();
           }, 3500);
         } else {
           claimReceiverPeer();
@@ -3451,7 +3490,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       }
       if (state.mode === 'split') {
         setTimeout(() => {
-          if (!(state.senderConn && state.senderConn.open)) updateSenderConnectionUI(true, '통합 모드: 이 PC가 방송실 역할을 맡아 직접 방송합니다.');
+          if (!(state.senderConn && state.senderConn.open) && !relayReceiverFresh()) updateSenderConnectionUI(true, '통합 모드: 이 PC가 방송실 역할을 맡아 직접 방송합니다.');
         }, 4200);
       }
     }
@@ -3465,12 +3504,15 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     }
 
     function claimReceiverPeer() {
+      if (state.mode === 'split' && relayReceiverFresh()) return;   // [v3.2] 별도 방송실 PC가 있으면 통합 화면은 수신 역할을 맡지 않음
+      if (!isLocalReceiverActive()) return;
+      p2pDiag.rx = 'connecting';
       if (state.receiverPeer && !state.receiverPeer.destroyed) {
         try { state.receiverPeer.destroy(); } catch (e) {}
       }
       let rxPeer;
       try {
-        rxPeer = new Peer(getReceiverPeerId(), { debug: 0 });
+        rxPeer = new Peer(getReceiverPeerId(), { debug: 0, config: PEER_RTC_CONFIG });
       } catch (e) {
         scheduleReceiverClaimRetry(5000);
         return;
@@ -3478,6 +3520,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       state.receiverPeer = rxPeer;
 
       rxPeer.on('open', () => {
+        p2pDiag.rx = 'open'; p2pDiag.rxErr = '';
         state.ownsReceiverPeer = true;
         updateReceiverRoleNotice();
         broadcastReceiverVoicesList();
@@ -3508,12 +3551,16 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
 
       rxPeer.on('error', (err) => {
         const type = err && err.type;
+        p2pDiag.rxErr = type || 'error';
+        if (type !== 'peer-unavailable') p2pDiag.rx = 'error';
+        renderConnDiag();
         if (type === 'unavailable-id') {
           state.ownsReceiverPeer = false;
           try { rxPeer.destroy(); } catch (e) {}
           if (state.mode === 'receiver') {
             // 새로고침 직후 이전 세션 ID가 남아 있거나, 통합 모드 PC가 ID를 잡고 있는 경우
             requestReceiverTakeover();
+            if (relayCanSend()) relayPost({ type: 'RX_TAKEOVER', channel: state.channelCode });
             updateReceiverRoleNotice('같은 채널을 다른 화면이 수신 중입니다. 교무실 PC가 "통합" 모드라면 자동으로 이 방송실 PC에 역할을 넘기도록 요청했습니다. 잠시 후 자동 재시도합니다.');
             scheduleReceiverClaimRetry(4000);
           }
@@ -3540,7 +3587,7 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       if (Date.now() - state.lastTakeoverRequestAt < 20000) return;
       state.lastTakeoverRequestAt = Date.now();
       try {
-        const tmp = new Peer(undefined, { debug: 0 });
+        const tmp = new Peer(undefined, { debug: 0, config: PEER_RTC_CONFIG });
         const cleanup = () => { try { tmp.destroy(); } catch (e) {} };
         tmp.on('open', () => {
           const conn = tmp.connect(getReceiverPeerId(), { reliable: true });
@@ -3558,11 +3605,12 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
     function startSenderPeer() {
       let txPeer;
       try {
-        txPeer = new Peer(undefined, { debug: 0 });
+        txPeer = new Peer(undefined, { debug: 0, config: PEER_RTC_CONFIG });
       } catch (e) {
         return;
       }
       state.senderPeer = txPeer;
+      p2pDiag.tx = 'connecting';
 
       const connectToReceiver = () => {
         if (!state.senderPeer || state.senderPeer !== txPeer || txPeer.destroyed || txPeer.disconnected) return;
@@ -3603,6 +3651,8 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
       };
 
       txPeer.on('open', () => {
+        p2pDiag.tx = 'open'; p2pDiag.txErr = '';
+        renderConnDiag();
         connectToReceiver();
         state.pingTimer = setInterval(() => {
           if (state.localChannel) {
@@ -3617,12 +3667,638 @@ ${text}`}]}], generationConfig:{temperature:0.35, maxOutputTokens:700} }) }); }
         }
       });
       txPeer.on('error', (err) => {
+        p2pDiag.txErr = (err && err.type) || 'error';
+        if (err && err.type !== 'peer-unavailable') p2pDiag.tx = 'error';
+        renderConnDiag();
         if (err && err.type === 'peer-unavailable') {
           state.senderConnPending = false;
           state.senderConn = null;
         }
       });
     }
+
+
+    // ==================== [v3.2] 인터넷 중계(Relay) ====================
+    // 학교·교육청 망은 방화벽이 PC 간 직접 연결(WebRTC/UDP)을 막는 경우가 많습니다.
+    // 이 경우 같은 PC 안의 탭끼리는 되지만(BroadcastChannel) 다른 PC로는 아무것도 전달되지 않습니다.
+    // 그래서 일반 웹(HTTPS 443)으로 동작하는 공개 중계 서버(ntfy.sh)를 보조 경로로 사용합니다.
+    //  - 직접 연결이 되면 직접 연결만 사용하고, 안 될 때만 중계를 사용합니다.
+    //  - 메시지는 채널 코드로 만든 키로 암호화(AES-GCM)되며, Gemini API 키는 중계로 보내지 않습니다.
+    //  - ntfy.sh 무료 사용량: 같은 인터넷 주소(학교 전체 공유)당 하루 약 250건. 방송 1건에 약 5~8건 사용.
+    const RELAY_CONFIG = {
+      ENABLED: true,
+      BASE_URL: 'https://ntfy.sh',
+      MAX_PART_CHARS: 3600,
+      PREP_POLL_MS: 9000,
+      PREP_STALE_MS: 30000,
+      PREP_RESPONSE_TIMEOUT_MS: 10000,
+      RECEIVER_FRESH_MS: 30 * 60 * 1000,
+      PING_REFRESH_MS: 3 * 60 * 1000,
+      REPLY_WINDOW_MS: 15 * 60 * 1000,
+      DAILY_SOFT_LIMIT: 250
+    };
+
+    const PEER_RTC_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' }
+      ]
+    };
+
+    const relay = {
+      clientId: Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
+      startedAt: Date.now(),
+      claimedAt: 0,
+      genId: 0,
+      es: null,
+      topic: '',
+      channel: '',
+      aesKey: null,
+      status: 'off',
+      lastError: '',
+      reopenTimer: null,
+      openTimer: null,
+      remoteReceiverAt: 0,
+      remoteSenderAt: 0,
+      lastRelayCmdAt: 0,
+      limitedUntil: 0,
+      parts: new Map(),
+      passive: false,
+      passiveReason: '',
+      lastHelloAt: 0,
+      lastPingAt: 0,
+      lastPrepSend: null,
+      test: null
+    };
+
+    const p2pDiag = { tx: 'off', rx: 'off', txErr: '', rxErr: '' };
+
+    function relayHash(str) {
+      const h = (seed) => {
+        let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+        for (let i = 0; i < str.length; i++) {
+          const ch = str.charCodeAt(i);
+          h1 = Math.imul(h1 ^ ch, 2654435761);
+          h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+      };
+      return h(7) + h(1337);
+    }
+
+    function deriveRelayTopic(code) {
+      return 'sjthspa_' + relayHash('sjths-pa-relay-v32|' + code);
+    }
+
+    async function deriveRelayKey(code) {
+      try {
+        if (!(window.crypto && crypto.subtle)) return null;
+        const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('sjths-pa-key-v32|' + code));
+        return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function relayB64(u8) {
+      let out = '';
+      for (let i = 0; i < u8.length; i += 0x8000) out += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      return btoa(out);
+    }
+
+    function relayUnB64(str) {
+      const bin = atob(str);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return u8;
+    }
+
+    async function relayEncode(obj) {
+      const bytes = new TextEncoder().encode(JSON.stringify(obj));
+      if (relay.aesKey) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, relay.aesKey, bytes));
+        return 'E1.' + relayB64(iv) + '.' + relayB64(ct);
+      }
+      return 'P1.' + relayB64(bytes);
+    }
+
+    async function relayDecode(str) {
+      if (str.startsWith('E1.')) {
+        if (!relay.aesKey) throw new Error('NO_CRYPTO');
+        const parts = str.split('.');
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: relayUnB64(parts[1]) }, relay.aesKey, relayUnB64(parts[2]));
+        return JSON.parse(new TextDecoder().decode(pt));
+      }
+      if (str.startsWith('P1.')) return JSON.parse(new TextDecoder().decode(relayUnB64(str.slice(3))));
+      return null;
+    }
+
+    function relayCanSend() {
+      return RELAY_CONFIG.ENABLED && relay.status === 'open' && !!relay.topic &&
+        relay.channel === state.channelCode && Date.now() >= relay.limitedUntil;
+    }
+
+    function relayReceiverFresh() {
+      return state.mode !== 'receiver' && relayCanSend() && relay.remoteReceiverAt > 0 &&
+        Date.now() - relay.remoteReceiverAt < RELAY_CONFIG.RECEIVER_FRESH_MS;
+    }
+
+    function isRelayReceiver() {
+      return state.mode === 'receiver' && state.isReceiverLeader && !relay.passive;
+    }
+
+    function hasOpenP2PSender() {
+      let open = false;
+      state.activeRxConnections.forEach((c) => { if (c && c.open) open = true; });
+      return open;
+    }
+
+    function relayShouldReply() {
+      return isRelayReceiver() && relayCanSend() && !hasOpenP2PSender() &&
+        relay.lastRelayCmdAt > 0 && Date.now() - relay.lastRelayCmdAt < RELAY_CONFIG.REPLY_WINDOW_MS;
+    }
+
+    function relayOnlineText() {
+      return `채널 [${state.channelCode}] 방송실 PC와 인터넷 중계로 연결되었습니다. (PC 간 직접 연결이 막힌 학교망에서도 동작합니다)`;
+    }
+
+    function relayUsageToday() {
+      try {
+        const u = JSON.parse(localStorage.getItem('sjths_pa_relay_usage_v1') || '{}');
+        const today = new Date().toISOString().slice(0, 10);
+        return u.d === today ? (u.n || 0) : 0;
+      } catch (e) { return 0; }
+    }
+
+    function countRelayUsage() {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        localStorage.setItem('sjths_pa_relay_usage_v1', JSON.stringify({ d: today, n: relayUsageToday() + 1 }));
+      } catch (e) {}
+    }
+
+    function sanitizeForRelay(packet) {
+      const out = { ...packet, channel: state.channelCode, _from: relay.clientId,
+        _role: state.mode === 'receiver' ? 'receiver' : 'sender', _startedAt: relay.startedAt, _claimedAt: relay.claimedAt };
+      if (packet.payload && typeof packet.payload === 'object') {
+        const p = { ...packet.payload };
+        p._hadKey = !!p.apiKey;
+        delete p.apiKey;               // API 키는 공개 중계로 보내지 않음 (방송실 PC 설정의 키 사용)
+        out.payload = p;
+      }
+      delete out.voices;
+      return out;
+    }
+
+    function relayPost(packet) {
+      if (!relayCanSend()) return false;
+      relaySendAsync(packet);
+      return true;
+    }
+
+    async function relaySendAsync(packet) {
+      const gen = relay.genId;
+      const topic = relay.topic;
+      let encoded;
+      try {
+        encoded = await relayEncode(sanitizeForRelay(packet));
+      } catch (e) {
+        return false;
+      }
+      if (gen !== relay.genId) return false;
+      const msgId = Math.random().toString(36).slice(2, 10);
+      const n = Math.max(1, Math.ceil(encoded.length / RELAY_CONFIG.MAX_PART_CHARS));
+      for (let i = 0; i < n; i++) {
+        const body = `R1|${msgId}|${i}|${n}|` + encoded.slice(i * RELAY_CONFIG.MAX_PART_CHARS, (i + 1) * RELAY_CONFIG.MAX_PART_CHARS);
+        try {
+          const res = await fetch(`${RELAY_CONFIG.BASE_URL}/${topic}`, { method: 'POST', body, cache: 'no-store' });
+          countRelayUsage();
+          if (res.status === 429) {
+            relay.limitedUntil = Date.now() + 10 * 60 * 1000;
+            relay.lastError = '중계 서버 사용 한도를 초과했습니다. 10분 뒤 다시 시도합니다. (같은 학교 인터넷 주소 기준 하루 약 250건)';
+            renderConnDiag();
+            return false;
+          }
+          if (!res.ok) {
+            relay.lastError = `중계 서버 전송 실패 (HTTP ${res.status})`;
+            renderConnDiag();
+            return false;
+          }
+        } catch (e) {
+          relay.lastError = '중계 서버로 전송하지 못했습니다. (방화벽이 ntfy.sh를 막고 있는지 확인)';
+          renderConnDiag();
+          return false;
+        }
+      }
+      if (relay.lastError && relay.lastError.indexOf('전송') >= 0) relay.lastError = '';
+      renderConnDiag();
+      return true;
+    }
+
+    function ensureRelay() {
+      if (!RELAY_CONFIG.ENABLED) { relay.status = 'off'; renderConnDiag(); return; }
+      if (relay.channel === state.channelCode && (relay.status === 'open' || relay.status === 'connecting')) {
+        if (relay.status === 'open') onRelayOpened(false);
+        return;
+      }
+      startRelay();
+    }
+
+    function stopRelay() {
+      relay.genId++;
+      if (relay.es) { try { relay.es.close(); } catch (e) {} }
+      relay.es = null;
+      if (relay.reopenTimer) { clearTimeout(relay.reopenTimer); relay.reopenTimer = null; }
+      if (relay.openTimer) { clearTimeout(relay.openTimer); relay.openTimer = null; }
+      relay.status = 'off';
+    }
+
+    function startRelay() {
+      const sameChannel = relay.channel === state.channelCode;
+      stopRelay();
+      if (typeof EventSource === 'undefined' || typeof fetch === 'undefined') {
+        relay.status = 'error';
+        relay.lastError = '이 브라우저는 인터넷 중계를 지원하지 않습니다. (Chrome 또는 Edge 최신 버전 사용)';
+        renderConnDiag();
+        return;
+      }
+      const gen = relay.genId;
+      const code = state.channelCode;
+      if (!sameChannel) {
+        relay.remoteReceiverAt = 0;
+        relay.remoteSenderAt = 0;
+        relay.passive = false;
+        relay.lastHelloAt = 0;
+        relay.lastPingAt = 0;
+      }
+      relay.channel = code;
+      relay.topic = deriveRelayTopic(code);
+      relay.status = 'connecting';
+      relay.lastError = '';
+      renderConnDiag();
+      deriveRelayKey(code).then((key) => {
+        if (gen !== relay.genId) return;
+        relay.aesKey = key;
+        openRelayStream(gen);
+      });
+    }
+
+    function openRelayStream(gen) {
+      let es;
+      try {
+        es = new EventSource(`${RELAY_CONFIG.BASE_URL}/${relay.topic}/sse`);
+      } catch (e) {
+        relay.status = 'error';
+        relay.lastError = '중계 서버에 연결하지 못했습니다.';
+        renderConnDiag();
+        return;
+      }
+      relay.es = es;
+      relay.openTimer = setTimeout(() => {
+        if (gen === relay.genId && relay.status === 'connecting') {
+          relay.status = 'error';
+          relay.lastError = '중계 서버(ntfy.sh)에 접속하지 못했습니다. 학교 방화벽·유해사이트 차단에서 ntfy.sh 허용이 필요할 수 있습니다.';
+          renderConnDiag();
+        }
+      }, 12000);
+      es.onopen = () => {
+        if (gen !== relay.genId) return;
+        relay.status = 'open';
+        relay.lastError = '';
+        renderConnDiag();
+        onRelayOpened(false);
+      };
+      es.onmessage = (ev) => {
+        if (gen !== relay.genId) return;
+        handleRelayRaw(ev.data);
+      };
+      es.onerror = () => {
+        if (gen !== relay.genId) return;
+        if (es.readyState === 2) {
+          relay.status = 'error';
+          if (!relay.lastError) relay.lastError = '중계 서버 연결이 끊겼습니다. 15초 뒤 다시 연결합니다.';
+          renderConnDiag();
+          if (!relay.reopenTimer) {
+            relay.reopenTimer = setTimeout(() => {
+              relay.reopenTimer = null;
+              if (gen === relay.genId) startRelay();
+            }, 15000);
+          }
+        } else if (relay.status === 'open') {
+          relay.status = 'connecting';
+          renderConnDiag();
+        }
+      };
+    }
+
+    function onRelayOpened(force) {
+      const now = Date.now();
+      if (state.mode === 'receiver') {
+        if (state.isReceiverLeader && !relay.passive && (force || now - relay.lastHelloAt > 60000)) {
+          relay.lastHelloAt = now;
+          relayPost({ type: 'RX_HELLO', channel: state.channelCode });
+        }
+      } else if (force || now - relay.lastPingAt > RELAY_CONFIG.PING_REFRESH_MS) {
+        if (!(state.senderConn && state.senderConn.open)) relayPing();
+      }
+    }
+
+    function relayPing(nonce) {
+      relay.lastPingAt = Date.now();
+      return relayPost({ type: 'RELAY_PING', channel: state.channelCode, nonce: nonce || '' });
+    }
+
+    function handleRelayRaw(data) {
+      let d;
+      try { d = JSON.parse(data); } catch (e) { return; }
+      if (!d || d.event !== 'message' || typeof d.message !== 'string' || !d.message.startsWith('R1|')) return;
+      const seg = d.message.split('|');
+      if (seg.length < 5) return;
+      const msgId = seg[1];
+      const idx = parseInt(seg[2], 10);
+      const total = parseInt(seg[3], 10);
+      const chunk = seg.slice(4).join('|');
+      let full = null;
+      if (total <= 1) {
+        full = chunk;
+      } else {
+        const now = Date.now();
+        relay.parts.forEach((v, k) => { if (now - v.at > 60000) relay.parts.delete(k); });
+        const entry = relay.parts.get(msgId) || { at: now, got: new Array(total) };
+        entry.got[idx] = chunk;
+        relay.parts.set(msgId, entry);
+        let complete = true;
+        for (let i = 0; i < total; i++) if (typeof entry.got[i] !== 'string') complete = false;
+        if (!complete) return;
+        relay.parts.delete(msgId);
+        full = entry.got.join('');
+      }
+      relayDecode(full).then((pkt) => onRelayPacket(pkt)).catch(() => {
+        relay.lastError = '중계 메시지를 해독하지 못했습니다. 두 PC 모두 같은 v3.2 파일과 같은 채널 코드를 쓰는지 확인하세요.';
+        renderConnDiag();
+      });
+    }
+
+    function relayRankHigher(a, b) {
+      if ((a.claimedAt || 0) !== (b.claimedAt || 0)) return (a.claimedAt || 0) > (b.claimedAt || 0);
+      return (a.startedAt || 0) < (b.startedAt || 0);
+    }
+
+    function setRelayPassive(on, reason) {
+      if (relay.passive === on) return;
+      relay.passive = on;
+      relay.passiveReason = reason || '';
+      if (on) {
+        if (state.receiverPeer) {
+          try { state.receiverPeer.destroy(); } catch (e) {}
+          state.receiverPeer = null;
+        }
+        state.ownsReceiverPeer = false;
+        p2pDiag.rx = 'off';
+        showToast('다른 PC가 이 채널의 방송실 역할을 하고 있어 이 화면은 대기 상태로 바뀌었습니다.', 'info');
+      }
+      updateReceiverRoleNotice();
+      renderConnDiag();
+    }
+
+    function claimMainReceiverRole() {
+      if (state.mode !== 'receiver') return;
+      relay.claimedAt = Date.now();
+      setRelayPassive(false);
+      relayPost({ type: 'RX_CLAIM', channel: state.channelCode });
+      showToast('이 PC를 방송실로 지정했습니다. 다른 방송실 화면은 대기 상태로 바뀝니다.', 'success');
+      setTimeout(() => {
+        if (state.mode === 'receiver' && !state.ownsReceiverPeer && typeof Peer !== 'undefined') {
+          requestReceiverTakeover();
+          claimReceiverPeer();
+        }
+      }, 1500);
+    }
+
+    function onRemoteReceiverSeen() {
+      relay.remoteReceiverAt = Date.now();
+      if (state.mode === 'receiver') return;
+      if (state.rxClaimTimer) { clearTimeout(state.rxClaimTimer); state.rxClaimTimer = null; }
+      if (state.mode === 'split' && state.ownsReceiverPeer) yieldReceiverRole();
+      if (!(state.senderConn && state.senderConn.open) && !state.receiverOnline) updateSenderConnectionUI(true, relayOnlineText());
+      renderConnDiag();
+    }
+
+    function onRelayPacket(pkt) {
+      if (!pkt || pkt.channel !== state.channelCode) return;
+      if (pkt._from === relay.clientId) {
+        if (relay.test && pkt.nonce && pkt.nonce === relay.test.nonce) {
+          relay.test.selfEchoMs = Date.now() - relay.test.at;
+          renderConnDiag();
+        }
+        return;
+      }
+      const now = Date.now();
+      const other = { claimedAt: pkt._claimedAt || 0, startedAt: pkt._startedAt || 0 };
+      const me = { claimedAt: relay.claimedAt, startedAt: relay.startedAt };
+      if (pkt._role === 'receiver') relay.remoteReceiverAt = now; else relay.remoteSenderAt = now;
+
+      switch (pkt.type) {
+        case 'RELAY_PING':
+          if (isRelayReceiver()) relayPost({ type: 'RELAY_PONG', channel: state.channelCode, nonce: pkt.nonce || '' });
+          renderConnDiag();
+          return;
+        case 'RELAY_PONG':
+          if (state.mode !== 'receiver') {
+            onRemoteReceiverSeen();
+            if (relay.test && pkt.nonce && pkt.nonce === relay.test.nonce) {
+              relay.test.peerMs = now - relay.test.at;
+              renderConnDiag();
+            }
+          }
+          return;
+        case 'RX_HELLO':
+        case 'RX_PRESENT':
+          if (state.mode === 'receiver') {
+            if (pkt.type === 'RX_PRESENT' && pkt.to && pkt.to !== relay.clientId) return;
+            if (!state.isReceiverLeader) return;
+            if (relayRankHigher(other, me)) {
+              setRelayPassive(true, '다른 PC(또는 다른 브라우저)가 이미 이 채널의 방송실 역할을 하고 있어 이 화면은 대기 상태입니다. 교무실 PC의 수신 탭을 닫거나, 이 PC를 방송실로 쓰려면 위 [연결 상태]의 [이 PC를 방송실로 사용]을 누르세요.');
+            } else if (pkt.type === 'RX_HELLO' && !relay.passive) {
+              relayPost({ type: 'RX_PRESENT', channel: state.channelCode, to: pkt._from });
+            }
+          } else {
+            onRemoteReceiverSeen();
+          }
+          return;
+        case 'RX_CLAIM':
+          if (state.mode === 'receiver') {
+            setRelayPassive(true, '다른 PC가 [이 PC를 방송실로 사용]을 눌러 방송실 역할을 가져갔습니다. 이 화면은 대기 상태입니다.');
+          } else {
+            onRemoteReceiverSeen();
+          }
+          return;
+        case 'RX_TAKEOVER':
+          if (state.mode === 'split' && state.ownsReceiverPeer) yieldReceiverRole();
+          if (state.mode !== 'receiver') onRemoteReceiverSeen();
+          return;
+        default:
+          break;
+      }
+
+      if (state.mode === 'receiver') {
+        if (!isRelayReceiver()) return;
+        if (!['PREPARE_BROADCAST', 'PLAY_BROADCAST', 'STOP_BROADCAST'].includes(pkt.type)) return;
+        relay.lastRelayCmdAt = now;
+        if (pkt.payload && typeof pkt.payload === 'object') {
+          const hadKey = !!pkt.payload._hadKey;
+          delete pkt.payload._hadKey;
+          pkt.payload.apiKey = state.customApiKey || '';
+          if (pkt.type === 'PREPARE_BROADCAST' && hadKey && !state.customApiKey && (pkt.payload.voiceEngine || 'ai') === 'ai') {
+            sendPrepStatus(pkt.prepKey, {
+              status: 'error', done: 0, total: 1, retryAfterMs: 0,
+              message: '방송실 PC에 Gemini API 키가 없습니다. 방송실 PC의 [설정]에서 같은 API 키를 입력해 주세요.'
+            });
+            return;
+          }
+        }
+        handleIncomingPacket(pkt);
+        renderConnDiag();
+        return;
+      }
+
+      if (['SPEECH_PREP_STATUS', 'BROADCAST_ACK', 'BROADCAST_STARTED', 'BROADCAST_FINISHED', 'BROADCAST_STOPPED'].includes(pkt.type)) {
+        if (pkt._role === 'receiver') onRemoteReceiverSeen();
+        handleIncomingPacket(pkt);
+      }
+    }
+
+    function runConnectionTest() {
+      const nonce = 't' + Math.random().toString(36).slice(2, 9);
+      relay.test = { nonce, at: Date.now(), selfEchoMs: 0, peerMs: 0 };
+      if (!relayCanSend()) {
+        relay.test.relayDown = true;
+        if (relay.status !== 'connecting') startRelay();
+      } else if (state.mode === 'receiver') {
+        relay.lastHelloAt = Date.now();
+        relayPost({ type: 'RX_HELLO', channel: state.channelCode, nonce });
+      } else {
+        relayPing(nonce);
+      }
+      if (state.senderConn && state.senderConn.open) {
+        try { state.senderConn.send({ type: 'PING', channel: state.channelCode }); } catch (e) {}
+      }
+      renderConnDiag();
+      setTimeout(renderConnDiag, 8000);
+    }
+
+    function diagBadge(kind, text) {
+      const cls = {
+        ok: 'bg-[#E6F2EC] text-[#2F6346]',
+        warn: 'bg-amber-100 text-amber-900',
+        bad: 'bg-[#FBE4E1] text-[#B9382C]',
+        off: 'bg-[#EFE9DD] text-[#5C432E]'
+      }[kind] || '';
+      return `<span class="inline-block px-2 py-0.5 rounded-md border border-[#3A2E25] text-[11px] font-extrabold ${cls}">${escapeHtml(text)}</span>`;
+    }
+
+    function agoText(t) {
+      if (!t) return '확인 안 됨';
+      const sec = Math.round((Date.now() - t) / 1000);
+      if (sec < 60) return `${sec}초 전`;
+      return `${Math.round(sec / 60)}분 전`;
+    }
+
+    function renderConnDiag() {
+      if (typeof document === 'undefined') return;
+      let panel = document.getElementById('conn-diag-panel');
+      if (!panel || !panel.isConnected) {
+        if (panel && panel.isConnected === undefined) { /* 테스트 환경 */ }
+        else {
+          const anchor = document.getElementById('guide-banner');
+          if (!anchor || !anchor.insertAdjacentElement) return;
+          panel = document.createElement('div');
+          panel.id = 'conn-diag-panel';
+          panel.className = 'relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-3';
+          anchor.insertAdjacentElement('afterend', panel);
+        }
+      }
+      const modeName = { sender: '교무실(송신)', receiver: '방송실(수신)', split: '통합(1화면)' }[state.mode] || state.mode;
+      const isRx = state.mode === 'receiver';
+
+      let p2p;
+      const directOpen = isRx ? hasOpenP2PSender() : !!(state.senderConn && state.senderConn.open);
+      const sig = isRx ? p2pDiag.rx : p2pDiag.tx;
+      const sigErr = isRx ? p2pDiag.rxErr : p2pDiag.txErr;
+      if (directOpen) p2p = diagBadge('ok', '연결됨');
+      else if (sig === 'unavailable') p2p = diagBadge('bad', '모듈 불러오기 실패');
+      else if (sig === 'error' && sigErr && sigErr !== 'peer-unavailable' && sigErr !== 'unavailable-id') p2p = diagBadge('bad', '신호 서버 접속 실패');
+      else if (sig === 'open') p2p = diagBadge('warn', isRx ? '교무실 PC 직접 연결 없음' : '방송실 PC 직접 연결 안 됨');
+      else p2p = diagBadge('off', '확인 중');
+
+      let rl;
+      if (!RELAY_CONFIG.ENABLED) rl = diagBadge('off', '사용 안 함');
+      else if (Date.now() < relay.limitedUntil) rl = diagBadge('bad', '사용 한도 초과');
+      else if (relay.status === 'open') rl = diagBadge('ok', '연결됨');
+      else if (relay.status === 'connecting') rl = diagBadge('warn', '접속 중');
+      else rl = diagBadge('bad', '접속 실패');
+
+      let peer;
+      if (isRx) {
+        if (relay.passive) peer = diagBadge('warn', '대기 상태 (다른 방송실 화면이 수신 중)');
+        else if (directOpen) peer = diagBadge('ok', '교무실 PC 직접 연결');
+        else if (relay.remoteSenderAt) peer = diagBadge('ok', `교무실 신호 ${agoText(relay.remoteSenderAt)}`);
+        else peer = diagBadge('off', '교무실 PC 신호 아직 없음');
+      } else {
+        if (directOpen) peer = diagBadge('ok', '방송실 PC 직접 연결');
+        else if (relayReceiverFresh()) peer = diagBadge('ok', `방송실 PC 응답 ${agoText(relay.remoteReceiverAt)} (중계)`);
+        else if (state.mode === 'split' && state.ownsReceiverPeer) peer = diagBadge('warn', '이 PC가 직접 방송 (방송실 PC 없음)');
+        else peer = diagBadge('bad', '방송실 PC 응답 없음');
+      }
+
+      let testLine = '';
+      if (relay.test) {
+        const t = relay.test;
+        const elapsed = Date.now() - t.at;
+        const parts = [];
+        if (t.relayDown) parts.push('중계 서버에 연결되어 있지 않아 시험할 수 없습니다. 다시 연결을 시도합니다.');
+        else {
+          parts.push(t.selfEchoMs ? `중계 서버 송수신 정상(${t.selfEchoMs}ms)` : (elapsed > 7000 ? '중계 서버로 보낸 신호가 돌아오지 않음' : '중계 서버 시험 중…'));
+          if (!isRx) parts.push(t.peerMs ? `방송실 PC 응답 ${t.peerMs}ms` : (elapsed > 7000 ? '방송실 PC 응답 없음 → 방송실 PC가 v3.2 [방송실 PC (수신)] 모드인지, 채널 코드가 같은지 확인' : '방송실 PC 응답 기다리는 중…'));
+        }
+        testLine = `<div class="mt-1.5 text-[11px] text-[#5C432E]">연결 테스트: ${escapeHtml(parts.join(' · '))}</div>`;
+      }
+
+      const errLine = relay.lastError ? `<div class="mt-1 text-[11px] text-[#B9382C] font-bold">${escapeHtml(relay.lastError)}</div>` : '';
+      const claimBtn = (isRx && relay.passive)
+        ? `<button type="button" onclick="claimMainReceiverRole()" class="px-2.5 py-1 rounded-md text-[11px] font-extrabold bg-[#7C5638] text-white border border-[#3A2E25]">이 PC를 방송실로 사용</button>`
+        : '';
+
+      panel.innerHTML = `
+        <div class="bg-[#FAF8F3] border-2 border-[#3A2E25] rounded-2xl px-4 py-2.5 text-xs text-[#2B2623]">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <strong class="text-[#2B2623]">연결 상태</strong>
+            <span>이 화면: <b>${escapeHtml(modeName)}</b> · 채널 <b class="font-mono">${escapeHtml(state.channelCode)}</b></span>
+            <span>PC 간 직접 연결: ${p2p}</span>
+            <span>인터넷 중계: ${rl}</span>
+            <span>상대 PC: ${peer}</span>
+            <span class="text-[#786F68]">이 PC 오늘 중계 사용 ${relayUsageToday()}건 (학교 전체 하루 약 ${RELAY_CONFIG.DAILY_SOFT_LIMIT}건)</span>
+            <span class="flex gap-1.5 ml-auto">
+              ${claimBtn}
+              <button type="button" onclick="runConnectionTest()" class="px-2.5 py-1 rounded-md text-[11px] font-bold bg-white hover:bg-[#EFE9DD] border border-[#3A2E25]">연결 테스트</button>
+            </span>
+          </div>
+          ${errLine}
+          ${testLine}
+        </div>`;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !appInitialized) return;
+      if (relay.status === 'error') startRelay();
+      else if (relay.status === 'open') onRelayOpened(false);
+    });
+    setInterval(() => { if (appInitialized) renderConnDiag(); }, 3000);
 
     // ==================== 9. UTILITIES & BOOTSTRAP ====================
     function escapeHtml(str) {
